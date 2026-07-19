@@ -371,10 +371,8 @@
         };
     }
 
-    // API
     window.App = {
-        async init() {
-            await DB.initPromise;
+        init() {
             user = DB.getSession();
             document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', () => nav(b.dataset.section)));
             document.getElementById('adminBtn').onclick = () => location.href = 'admin.html';
@@ -407,11 +405,11 @@
             setTimeout(setupUploads, 30);
         },
 
-        async save(type, tempId) {
+        save(type, tempId) {
             const d = collectData();
             if (!d.title) { toast('El título es requerido', 'error'); return; }
             if (type === 'capitulos' && tempId) d.temporadaId = tempId;
-            await DB.addItem(type, d, user?.email || 'anon');
+            DB.addItem(type, d, user?.email || 'anon');
             toast('Guardado', 'success'); closeModal();
             this._refresh(type, type === 'capitulos' ? (tempId || d.temporadaId) : null);
         },
@@ -434,25 +432,25 @@
             }, 30);
         },
 
-        async update(type, id) {
+        update(type, id) {
             const d = collectData();
             if (type === 'capitulos') {
                 const existing = DB.getItem('capitulos', id);
                 d.temporadaId = existing?.temporadaId;
             }
-            await DB.updateItem(type, id, d, user?.email || 'anon');
+            DB.updateItem(type, id, d, user?.email || 'anon');
             toast('Actualizado', 'success'); closeModal();
             this._refresh(type, type === 'capitulos' ? DB.getItem('capitulos', id)?.temporadaId : null);
         },
 
         del(type, id) {
-            confirm('¿Eliminar?', 'No se puede deshacer.', async () => {
+            confirm('¿Eliminar?', 'No se puede deshacer.', () => {
                 let tempId = null;
                 if (type === 'capitulos') {
                     const existing = DB.getItem('capitulos', id);
                     tempId = existing?.temporadaId;
                 }
-                await DB.deleteItem(type, id, user?.email || 'anon');
+                DB.deleteItem(type, id, user?.email || 'anon');
                 toast('Eliminado', 'success');
                 this._refresh(type, tempId);
             });
@@ -489,10 +487,10 @@
         saveTemporada() { this.save('temporadas'); },
         editTemporada(id) { this.edit('temporadas', id); },
         updateTemporada(id) { this.update('temporadas', id); },
-        async delTemporada(id) {
-            confirm('¿Eliminar temporada?', 'Se eliminarán también sus capítulos.', async () => {
+        delTemporada(id) {
+            confirm('¿Eliminar temporada?', 'Se eliminarán también sus capítulos.', () => {
                 DB.getContent('capitulos').filter(c => c.temporadaId === id).forEach(c => DB.deleteItem('capitulos', c.id, user?.email || 'anon'));
-                await DB.deleteItem('temporadas', id, user?.email || 'anon');
+                DB.deleteItem('temporadas', id, user?.email || 'anon');
                 toast('Eliminada', 'success'); nav('temporadas');
             });
         },
