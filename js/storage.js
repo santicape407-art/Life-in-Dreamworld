@@ -8,20 +8,177 @@ const DB = (() => {
         appId: "1:748350579418:web:33caa3164c3ae1cad1bbe3"
     };
 
-    let db = null;
-    try {
-        firebase.initializeApp(firebaseConfig);
-        db = firebase.firestore();
-    } catch(e) { console.warn('Firebase init error:', e); }
-
-    const K = { USERS: 'lid_u', ROLES: 'lid_r', CONTENT: 'lid_c', LOGS: 'lid_l', EMAILS: 'lid_e', SESSION: 'lid_s' };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    const auth = firebase.auth();
 
     function uid() { return Date.now().toString(36) + Math.random().toString(36).substr(2, 6); }
     function now() { return new Date().toISOString(); }
+
+    const K = { CONTENT: 'lid_c', LOGS: 'lid_l', USERS_META: 'lid_um', SESSION: 'lid_s' };
+
     function ls(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } }
     function ss(k, v) { localStorage.setItem(k, JSON.stringify(v)); }
 
-    function defaultRoles() {
+    function defaultContent() {
+        return { temporadas: [], personajes: [], comics: [], lore: [], lugares: [], anuncios: [], capitulos: [] };
+    }
+
+    // Cache
+    let contentCache = null;
+    let usersMetaCache = [];
+    let logsCache = [];
+
+    // Cargar contenido desde Firestore
+    async function loadContent() {
+        try {
+            const snap = await db.collection('site').doc('content').get();
+            contentCache = snap.exists ? snap.data() : defaultContent();
+            ss(K.CONTENT, contentCache);
+        } catch(e) {
+            console.warn('Firestore read error:', e);
+            contentCache = ls(K.CONTENT) || defaultContent();
+        }
+    }
+
+    async function saveContent() {
+        try {
+            await db.collection('site').doc('content').set(contentCache);
+            ss(K.CONTENT, contentCache);
+        } catch(e) { console.warn('Firestore write error:', e); }
+    }
+
+    async function loadUsersMeta() {
+        try {
+            const snap = await db.collection('site').doc('users_meta').get();
+            usersMetaCache = snap.exists ? snap.data().list : [];
+            ss(K.USERS_META, usersMetaCache);
+        } catch(e) {
+            usersMetaCache = ls(K.USERS_META) || [];
+        }
+    }
+
+    async function saveUsersMeta() {
+        try {
+            await db.collection('site').doc('users_meta').set({ list: usersMetaCache });
+            ss(K.USERS_META, usersMetaCache);
+        } catch(e) { console.warn('Firestore write error:', e); }
+    }
+
+    async function loadLogs() {
+        try {
+            const snap = await db.collection('site').doc('logs').get();
+            logsCache = snap.exists ? snap.data().list : [];
+        } catch(e) {
+            logsCache = ls(K.LOGS) || [];
+        }
+    }
+
+    async function saveLogs() {
+        try {
+            await db.collection('site').doc('logs').set({ list: logsCache.slice(0, 300) });
+        } catch(e) { console.warn('Firestore write error:', e); }
+    }
+
+    function addLog(user, action, detail) {
+        logsCache.unshift({ id: uid(), user, action, detail, at: now() });
+        if (logsCache.length > 300) logsCache.length = 300;
+        saveLogs();
+    }
+
+    // Init
+    const initPromise = (async () => {
+        contentCache = ls(K.CONTENT) || defaultContent();
+        usersMetaCache = ls(K.USERS_META) || [];
+        await Promise.all([loadContent(), loadUsersMeta(), loadLogs()]);
+        // Asegurar admin en users_meta
+        if (!usersMetaCache.find(u => u.email === 'santicape407@gmail.com')) {
+            usersMetaCache.push({
+                id: 'admin_main', email: 'santicape407@gmail.com',
+                name: 'Administrador', role: 'admin', active: true, at: now()
+            });
+            await saveUsersMeta();
+        }
+    })();
+
+    // Auth - usa Firebase Authentication
+    async function register(email, pass, name) {
+        try {
+            const cred = await auth.createUserWithEmailAndPassword(email, pass);
+            const meta = { id: cred.user.uid, email, name: name || '', role: 'editor', active: true, at: now() };
+            usersMetaCache.push(meta);
+            await saveUsersMeta();
+            addLog('system', 'create_user', email);
+            ss(K.SESSION, { id: cred.user.uid, email, name: name || '', role: 'editor' });
+            return { ok: true };
+        } catch(e) {
+            const msgs = { 'auth/email-already-in-use': 'Correo ya registrado', 'auth/weak-password': 'Contraseña muy débil', 'auth/invalid-email': 'Correo inválido' };
+            return { err: msgs[e.code] || e.message };
+        }
+    }
+
+    async function login(email, pass) {
+        try {
+            await auth.signInWithEmailAndPassword(email, pass);
+            const meta = usersMetaCache.find(u => u.email === email);
+            if (meta && !meta.active) {
+                await auth.signOut();
+                return { err: 'Cuenta desactivada' };
+            }
+            const role = meta?.role || 'editor';
+            ss(K.SESSION, { id: auth.currentUser.uid, email, name: meta?.name || '', role });
+            return { ok: true };
+        } catch(e) {
+            const msgs = { 'auth/user-not-found': 'Correo no registrado', 'auth/wrong-password': 'Contraseña incorrecta', 'auth/invalid-email': 'Correo inválido', 'auth/invalid-credential': 'Credenciales incorrectas' };
+            return { err: msgs[e.code] || e.message };
+        }
+    }
+
+    async function logout() {
+        await auth.signOut();
+        localStorage.removeItem(K.SESSION);
+    }
+
+    function getSession() {
+        try { return JSON.parse(localStorage.getItem(K.SESSION)); } catch { return null; }
+    }
+
+    function canWrite() {
+        return auth.currentUser !== null;
+    }
+
+    // Users Meta (para admin)
+    function getUsers() { return usersMetaCache; }
+    function getUser(id) { return usersMetaCache.find(u => u.id === id); }
+
+    async function addUser(d) {
+        if (usersMetaCache.find(u => u.email === d.email)) return { err: 'Correo ya registrado' };
+        const u = { id: uid(), email: d.email, name: d.name||'', role: d.role||'editor', active: true, at: now() };
+        usersMetaCache.push(u);
+        await saveUsersMeta();
+        addLog('system', 'create_user', u.email);
+        return { ok: true, tempPass: d.pass, tempEmail: d.email };
+    }
+
+    async function updateUser(id, d) {
+        const i = usersMetaCache.findIndex(u => u.id === id);
+        if (i < 0) return { err: 'No encontrado' };
+        Object.assign(usersMetaCache[i], d);
+        await saveUsersMeta();
+        addLog('system', 'update_user', usersMetaCache[i].email);
+        return { ok: true };
+    }
+
+    async function deleteUser(id) {
+        const u = usersMetaCache.find(x => x.id === id);
+        usersMetaCache = usersMetaCache.filter(x => x.id !== id);
+        await saveUsersMeta();
+        if (u) addLog('system', 'delete_user', u.email);
+        return { ok: true };
+    }
+
+    // Roles (hardcoded, se pueden cambiar)
+    function getRoles() {
         return [
             { id: 'admin', name: 'Administrador', perms: ['create','read','update','delete','manage'] },
             { id: 'mod', name: 'Moderador', perms: ['create','read','update','delete'] },
@@ -29,201 +186,56 @@ const DB = (() => {
         ];
     }
 
-    function defaultContent() {
-        return { temporadas: [], personajes: [], comics: [], lore: [], lugares: [], anuncios: [], capitulos: [] };
-    }
-
-    // Init: cargar desde Firestore y mezclar con localStorage
-    async function loadFromCloud() {
-        if (!db) return;
-        try {
-            const [uSnap, rSnap, cSnap, lSnap, eSnap] = await Promise.all([
-                db.collection('data').doc('users').get().catch(() => null),
-                db.collection('data').doc('roles').get().catch(() => null),
-                db.collection('data').doc('content').get().catch(() => null),
-                db.collection('data').doc('logs').get().catch(() => null),
-                db.collection('data').doc('emails').get().catch(() => null)
-            ]);
-
-            const cloudUsers = uSnap?.exists ? uSnap.data().list : null;
-            const cloudRoles = rSnap?.exists ? rSnap.data().list : null;
-            const cloudContent = cSnap?.exists ? cSnap.data() : null;
-            const cloudLogs = lSnap?.exists ? lSnap.data().list : null;
-            const cloudEmails = eSnap?.exists ? eSnap.data().list : null;
-
-            // Mezclar: si Firestore tiene datos, úsalos; si no, mantén localStorage
-            if (cloudUsers) ss(K.USERS, cloudUsers);
-            if (cloudRoles) ss(K.ROLES, cloudRoles);
-            if (cloudContent) ss(K.CONTENT, cloudContent);
-            if (cloudLogs) ss(K.LOGS, cloudLogs);
-            if (cloudEmails) ss(K.EMAILS, cloudEmails);
-
-            console.log('Firestore data loaded and merged');
-        } catch(e) { console.warn('Firestore load error:', e); }
-    }
-
-    // Guardar en Firestore en background
-    function pushToCloud() {
-        if (!db) return;
-        try {
-            db.collection('data').doc('users').set({ list: ls(K.USERS) || [] });
-            db.collection('data').doc('roles').set({ list: ls(K.ROLES) || defaultRoles() });
-            db.collection('data').doc('content').set(ls(K.CONTENT) || defaultContent());
-            db.collection('data').doc('logs').set({ list: (ls(K.LOGS) || []).slice(0, 300) });
-            db.collection('data').doc('emails').set({ list: ls(K.EMAILS) || [] });
-        } catch(e) { console.warn('Firestore push error:', e); }
-    }
-
-    function addLog(user, action, detail) {
-        const logs = ls(K.LOGS) || [];
-        logs.unshift({ id: uid(), user, action, detail, at: now() });
-        if (logs.length > 300) logs.length = 300;
-        ss(K.LOGS, logs);
-    }
-
-    // Asegurar defaults
-    function init() {
-        if (!ls(K.ROLES)) ss(K.ROLES, defaultRoles());
-        if (!ls(K.CONTENT)) ss(K.CONTENT, defaultContent());
-        if (!ls(K.LOGS)) ss(K.LOGS, []);
-        if (!ls(K.EMAILS)) ss(K.EMAILS, []);
-        const users = ls(K.USERS) || [];
-        if (!users.find(u => u.email === 'santicape407@gmail.com')) {
-            users.push({ id: 'admin_main', email: 'santicape407@gmail.com', name: 'Administrador', pass: 'Sonicelde2011', role: 'admin', active: true, at: now() });
-            ss(K.USERS, users);
-        }
-        const emails = ls(K.EMAILS);
-        if (!emails.includes('santicape407@gmail.com')) {
-            emails.push('santicape407@gmail.com');
-            ss(K.EMAILS, emails);
-        }
-    }
-
-    const initPromise = (async () => {
-        init();
-        await loadFromCloud();
-    })();
-
-    // Auth
-    function login(email, pass) {
-        const users = ls(K.USERS) || [];
-        const u = users.find(x => x.email === email);
-        if (!u) return { err: 'Correo no registrado' };
-        if (!u.active) return { err: 'Cuenta desactivada' };
-        if (u.pass !== pass) return { err: 'Contraseña incorrecta' };
-        const emails = ls(K.EMAILS) || [];
-        if (emails.length > 0 && !emails.includes(email)) return { err: 'Correo no autorizado' };
-        ss(K.SESSION, { id: u.id, email: u.email, name: u.name, role: u.role });
-        return { ok: true };
-    }
-    function getSession() { try { return JSON.parse(localStorage.getItem(K.SESSION)); } catch { return null; } }
-    function logout() { localStorage.removeItem(K.SESSION); }
-
-    // Users
-    function getUsers() { return ls(K.USERS) || []; }
-    function getUser(id) { return getUsers().find(u => u.id === id); }
-    function addUser(d) {
-        const users = getUsers();
-        if (users.find(u => u.email === d.email)) return { err: 'Correo ya registrado' };
-        const u = { id: uid(), email: d.email, name: d.name||'', pass: d.pass, role: d.role||'editor', active: true, at: now() };
-        users.push(u); ss(K.USERS, users);
-        addLog('system', 'create_user', u.email);
-        pushToCloud();
-        return { ok: true };
-    }
-    function updateUser(id, d) {
-        const users = getUsers(); const i = users.findIndex(u => u.id === id);
-        if (i < 0) return { err: 'No encontrado' };
-        Object.assign(users[i], d); ss(K.USERS, users);
-        addLog('system', 'update_user', users[i].email);
-        pushToCloud();
-        return { ok: true };
-    }
-    function deleteUser(id) {
-        const users = getUsers(); const u = users.find(x => x.id === id);
-        ss(K.USERS, users.filter(x => x.id !== id));
-        if (u) addLog('system', 'delete_user', u.email);
-        pushToCloud();
-        return { ok: true };
-    }
-
-    // Roles
-    function getRoles() { return ls(K.ROLES) || defaultRoles(); }
-    function addRole(d) {
-        const roles = getRoles();
-        if (roles.find(r => r.id === d.id)) return { err: 'Ya existe' };
-        roles.push({ id: d.id, name: d.name, perms: d.perms || [] });
-        ss(K.ROLES, roles); pushToCloud();
-        return { ok: true };
-    }
-    function updateRole(id, d) {
-        const roles = getRoles(); const i = roles.findIndex(r => r.id === id);
-        if (i < 0) return { err: 'No encontrado' };
-        Object.assign(roles[i], d); ss(K.ROLES, roles); pushToCloud();
-        return { ok: true };
-    }
-    function deleteRole(id) {
-        ss(K.ROLES, getRoles().filter(r => r.id !== id)); pushToCloud();
-        return { ok: true };
-    }
-
     // Content
-    function getContent(type) { return (ls(K.CONTENT) || {})[type] || []; }
-    function getItem(type, id) { return getContent(type).find(x => x.id === id); }
-    function addItem(type, d, user) {
-        const all = ls(K.CONTENT) || defaultContent();
-        if (!all[type]) all[type] = [];
+    function getContent(type) { return (contentCache || {})[type] || []; }
+    function getItem(type, id) { return (contentCache[type] || []).find(x => x.id === id); }
+
+    async function addItem(type, d, user) {
+        if (!contentCache[type]) contentCache[type] = [];
         const item = { id: uid(), ...d, by: user, at: now(), up: now() };
-        all[type].push(item); ss(K.CONTENT, all);
+        contentCache[type].push(item);
+        await saveContent();
         addLog(user, 'create', `${type}: ${d.title||''}`);
-        pushToCloud();
         return { ok: true, item };
     }
-    function updateItem(type, id, d, user) {
-        const all = ls(K.CONTENT) || defaultContent();
-        const list = all[type] || [];
+
+    async function updateItem(type, id, d, user) {
+        const list = contentCache[type] || [];
         const i = list.findIndex(x => x.id === id);
         if (i < 0) return { err: 'No encontrado' };
-        Object.assign(list[i], d, { up: now() }); ss(K.CONTENT, all);
+        Object.assign(list[i], d, { up: now() });
+        await saveContent();
         addLog(user, 'update', `${type}: ${d.title||''}`);
-        pushToCloud();
         return { ok: true };
     }
-    function deleteItem(type, id, user) {
-        const all = ls(K.CONTENT) || defaultContent();
-        const list = all[type] || [];
+
+    async function deleteItem(type, id, user) {
+        const list = contentCache[type] || [];
         const item = list.find(x => x.id === id);
-        all[type] = list.filter(x => x.id !== id); ss(K.CONTENT, all);
+        contentCache[type] = list.filter(x => x.id !== id);
+        await saveContent();
         addLog(user, 'delete', `${type}: ${item?.title||id}`);
-        pushToCloud();
         return { ok: true };
     }
+
     function allContent() {
-        const all = ls(K.CONTENT) || defaultContent();
         const r = [];
-        for (const t in all) (all[t] || []).forEach(i => r.push({ ...i, _t: t }));
+        for (const t in contentCache) (contentCache[t] || []).forEach(i => r.push({ ...i, _t: t }));
         return r.sort((a, b) => new Date(b.at) - new Date(a.at));
     }
 
-    // Emails
-    function getEmails() { return ls(K.EMAILS) || []; }
-    function addEmail(e) {
-        const emails = getEmails();
-        if (emails.includes(e)) return { err: 'Ya autorizado' };
-        emails.push(e); ss(K.EMAILS, emails); pushToCloud();
-        return { ok: true };
-    }
-    function removeEmail(e) {
-        ss(K.EMAILS, getEmails().filter(x => x !== e)); pushToCloud();
-        return { ok: true };
-    }
+    // Logs
+    function getLogs() { return logsCache; }
 
-    function getLogs() { return ls(K.LOGS) || []; }
+    // Emails (ya no se necesita, Firebase Auth maneja esto)
+    function getEmails() { return []; }
+    function addEmail() { return { ok: true }; }
+    function removeEmail() { return { ok: true }; }
 
     return {
-        initPromise, login, getSession, logout,
+        initPromise, login, register, logout, getSession, canWrite,
         getUsers, getUser, addUser, updateUser, deleteUser,
-        getRoles, addRole, updateRole, deleteRole,
+        getRoles,
         getContent, getItem, addItem, updateItem, deleteItem, allContent,
         getEmails, addEmail, removeEmail, getLogs, uid
     };

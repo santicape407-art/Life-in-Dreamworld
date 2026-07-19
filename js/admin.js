@@ -146,20 +146,20 @@
             user = DB.getSession();
             if (user) showAdmin();
 
-            document.getElementById('loginForm').addEventListener('submit', e => {
+            document.getElementById('loginForm').addEventListener('submit', async e => {
                 e.preventDefault();
                 const email = document.getElementById('loginEmail').value.trim();
                 const pass = document.getElementById('loginPass').value;
                 const err = document.getElementById('loginError');
-                const r = DB.login(email, pass);
-                if (r.err) { err.textContent = r.err; err.style.display = 'block'; return; }
                 err.style.display = 'none';
+                const r = await DB.login(email, pass);
+                if (r.err) { err.textContent = r.err; err.style.display = 'block'; return; }
                 user = DB.getSession();
                 showAdmin();
             });
 
-            document.getElementById('logoutBtn').onclick = () => {
-                DB.logout(); user = null;
+            document.getElementById('logoutBtn').onclick = async () => {
+                await DB.logout(); user = null;
                 document.getElementById('loginWrap').style.display = 'flex';
                 document.getElementById('adminLayout').style.display = 'none';
                 document.getElementById('adminUser').style.display = 'none';
@@ -186,6 +186,17 @@
                     <button class="btn btn-cyan" onclick="AP.saveRole()">Crear</button>`);
             };
 
+            document.getElementById('showRegisterBtn').onclick = () => {
+                modal('Crear Cuenta Admin', `
+                    <div class="form-group"><label>Correo</label><input id="regEmail"></div>
+                    <div class="form-group"><label>Nombre</label><input id="regName"></div>
+                    <div class="form-group"><label>Contraseña</label><input type="password" id="regPass"></div>
+                `, `
+                    <button class="btn btn-gray" onclick="closeModal()">Cancelar</button>
+                    <button class="btn btn-cyan" onclick="AP.register()">Crear</button>
+                `);
+            };
+
             document.getElementById('modalClose').onclick = closeModal;
             document.getElementById('modalOverlay').onclick = e => { if (e.target === e.currentTarget) closeModal(); };
             document.getElementById('confirmCancel').onclick = () => document.getElementById('confirmOverlay').classList.remove('active');
@@ -197,16 +208,16 @@
                 <button class="btn btn-gray" onclick="closeModal()">Cancelar</button>
                 <button class="btn btn-cyan" onclick="AP.updateUser('${id}')">Actualizar</button>`);
         },
-        saveUser() {
+        async saveUser() {
             const email = document.getElementById('uEmail').value.trim();
             const name = document.getElementById('uName').value.trim();
             const pass = document.getElementById('uPass').value;
             const role = document.getElementById('uRole').value;
             const active = document.getElementById('uActive').value === 'true';
             if (!email || !pass) { toast('Correo y contraseña requeridos', 'error'); return; }
-            const r = DB.addUser({ email, name, pass, role, active });
+            const r = await DB.addUser({ email, name, pass, role, active });
             if (r.err) { toast(r.err, 'error'); return; }
-            toast('Usuario creado', 'success'); closeModal(); renderUsers();
+            toast(`Usuario creado. Login: ${email} / ${pass}`, 'success'); closeModal(); renderUsers();
         },
         updateUser(id) {
             const d = { name: document.getElementById('uName').value.trim(), role: document.getElementById('uRole').value, active: document.getElementById('uActive').value === 'true' };
@@ -226,6 +237,15 @@
             toast(u.active ? 'Desactivado' : 'Activado', 'success'); renderUsers();
         },
 
+        async register() {
+            const email = document.getElementById('regEmail').value.trim();
+            const name = document.getElementById('regName').value.trim();
+            const pass = document.getElementById('regPass').value;
+            if (!email || !pass) { toast('Correo y contraseña requeridos', 'error'); return; }
+            const r = await DB.register(email, pass, name);
+            if (r.err) { toast(r.err, 'error'); return; }
+            toast('Cuenta creada. Ya podés iniciar sesión.', 'success'); closeModal();
+        },
         editRole(id) {
             const r = DB.getRoles().find(x => x.id === id);
             modal('Editar Rol', roleForm(r), `
