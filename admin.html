@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panel de Moderación - Life in Dreamworld</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="bg-gradient"></div>
+
+    <header class="header">
+        <div class="header-inner">
+            <a href="index.html" class="back-link">← Volver</a>
+            <a href="index.html" class="logo">Panel de Moderación</a>
+            <div class="admin-user" id="adminUser" style="display:none;">
+                <span id="adminUserName"></span>
+                <button class="btn btn-gray btn-sm" id="logoutBtn">Salir</button>
+            </div>
+        </div>
+    </header>
+
+    <main class="main" id="mainContent">
+        <!-- Login -->
+        <div class="login-wrap" id="loginWrap">
+            <div class="login-card">
+                <h2>Iniciar Sesión</h2>
+                <p>Solo cuentas autorizadas</p>
+                <form id="loginForm">
+                    <div class="form-group"><label>Correo</label><input type="email" id="loginEmail" required></div>
+                    <div class="form-group"><label>Contraseña</label><input type="password" id="loginPass" required></div>
+                    <button type="submit" class="btn btn-cyan" style="width:100%;justify-content:center;">Entrar</button>
+                    <div class="login-error" id="loginError" style="display:none;"></div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Admin panel -->
+        <div class="admin-layout" id="adminLayout" style="display:none;">
+            <aside class="sidebar">
+                <button class="sidebar-btn active" data-panel="users">Usuarios</button>
+                <button class="sidebar-btn" data-panel="roles">Roles</button>
+                <button class="sidebar-btn" data-panel="content">Contenido</button>
+                <button class="sidebar-btn" data-panel="logs">Registro</button>
+            </aside>
+            <div class="panel-content">
+                <!-- Usuarios -->
+                <div class="panel active" id="p-users">
+                    <div class="panel-top"><h2>Usuarios</h2><button class="btn btn-cyan" id="addUserBtn">+ Agregar</button></div>
+                    <table class="tbl"><thead><tr><th>Correo</th><th>Nombre</th><th>Rol</th><th>Estado</th><th>Acciones</th></tr></thead><tbody id="usersBody"></tbody></table>
+                </div>
+                <!-- Roles -->
+                <div class="panel" id="p-roles">
+                    <div class="panel-top"><h2>Roles</h2><button class="btn btn-cyan" id="addRoleBtn">+ Agregar</button></div>
+                    <table class="tbl"><thead><tr><th>ID</th><th>Nombre</th><th>Permisos</th><th>Acciones</th></tr></thead><tbody id="rolesBody"></tbody></table>
+                </div>
+                <!-- Contenido -->
+                <div class="panel" id="p-content">
+                    <div class="panel-top"><h2>Contenido</h2></div>
+                    <div class="filters" id="contentFilters">
+                        <button class="filter-btn active" data-f="all">Todos</button>
+                        <button class="filter-btn" data-f="temporadas">Temporadas</button>
+                        <button class="filter-btn" data-f="capitulos">Capítulos</button>
+                        <button class="filter-btn" data-f="personajes">Personajes</button>
+                        <button class="filter-btn" data-f="comics">Comics</button>
+                        <button class="filter-btn" data-f="lore">Lore</button>
+                        <button class="filter-btn" data-f="lugares">Lugares</button>
+                        <button class="filter-btn" data-f="anuncios">Anuncios</button>
+                    </div>
+                    <table class="tbl"><thead><tr><th>Tipo</th><th>Título</th><th>Creado</th><th>Acciones</th></tr></thead><tbody id="contentBody"></tbody></table>
+                </div>
+                <!-- Logs -->
+                <div class="panel" id="p-logs">
+                    <div class="panel-top"><h2>Registro de Cambios</h2></div>
+                    <table class="tbl"><thead><tr><th>Fecha</th><th>Usuario</th><th>Acción</th><th>Detalle</th></tr></thead><tbody id="logsBody"></tbody></table>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <div class="modal-overlay" id="modalOverlay">
+        <div class="modal">
+            <div class="modal-header"><h3 id="modalTitle"></h3><button class="modal-close" id="modalClose">×</button></div>
+            <div class="modal-body" id="modalBody"></div>
+            <div class="modal-footer" id="modalFooter"></div>
+        </div>
+    </div>
+
+    <div class="confirm-overlay" id="confirmOverlay">
+        <div class="confirm-box">
+            <h3 id="confirmTitle"></h3>
+            <p id="confirmMessage"></p>
+            <div class="confirm-btns">
+                <button class="btn btn-gray" id="confirmCancel">Cancelar</button>
+                <button class="btn btn-red" id="confirmAccept">Eliminar</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="toasts" id="toasts"></div>
+
+    <script src="js/storage.js"></script>
+    <script src="js/admin.js"></script>
+</body>
+</html>

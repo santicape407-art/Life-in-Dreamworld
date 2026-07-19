@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Life in Dreamworld</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="bg-gradient"></div>
+
+    <header class="header">
+        <div class="header-inner">
+            <a href="index.html" class="logo">Life in Dreamworld</a>
+            <nav class="nav" id="nav">
+                <button class="nav-btn active" data-section="inicio">Inicio</button>
+                <button class="nav-btn" data-section="temporadas">Temporadas</button>
+                <button class="nav-btn" data-section="personajes">Personajes</button>
+                <button class="nav-btn" data-section="comics">Comics</button>
+                <button class="nav-btn" data-section="lore">Lore</button>
+                <button class="nav-btn" data-section="lugares">Lugares</button>
+                <button class="nav-btn" data-section="anuncios">Anuncios</button>
+            </nav>
+            <button class="admin-btn" id="adminBtn" title="Panel de Moderación">⚙</button>
+            <button class="menu-toggle" id="menuToggle">☰</button>
+        </div>
+    </header>
+
+    <main class="main" id="main">
+        <!-- Inicio -->
+        <section class="section active" id="sec-inicio">
+            <h1>Bienvenido a Life in Dreamworld</h1>
+            <p class="subtitle">Este lugar es un sueño raro, pero algo es algo, ¿no?</p>
+            <div id="content-inicio" class="content-area"></div>
+        </section>
+
+        <!-- Temporadas (con capítulos dentro) -->
+        <section class="section" id="sec-temporadas">
+            <div class="section-top">
+                <h1>Temporadas</h1>
+                <div id="actions-temporadas"></div>
+            </div>
+            <div id="content-temporadas" class="content-area"></div>
+        </section>
+
+        <!-- Vista de temporada individual (capítulos) -->
+        <section class="section" id="sec-temporada-detail" style="display:none;">
+            <div class="section-top">
+                <div>
+                    <button class="back-btn" id="backToTemporadas">← Volver a Temporadas</button>
+                    <h1 id="temporada-title"></h1>
+                </div>
+                <div id="actions-capitulos"></div>
+            </div>
+            <div id="content-capitulos" class="content-area"></div>
+        </section>
+
+        <!-- Personajes -->
+        <section class="section" id="sec-personajes">
+            <div class="section-top">
+                <h1>Personajes</h1>
+                <div id="actions-personajes"></div>
+            </div>
+            <div id="content-personajes" class="content-area"></div>
+        </section>
+
+        <!-- Comics -->
+        <section class="section" id="sec-comics">
+            <div class="section-top">
+                <h1>Comics</h1>
+                <div id="actions-comics"></div>
+            </div>
+            <div id="content-comics" class="content-area"></div>
+        </section>
+
+        <!-- Lore -->
+        <section class="section" id="sec-lore">
+            <div class="section-top">
+                <h1>Lore</h1>
+                <div id="actions-lore"></div>
+            </div>
+            <div id="content-lore" class="content-area"></div>
+        </section>
+
+        <!-- Lugares -->
+        <section class="section" id="sec-lugares">
+            <div class="section-top">
+                <h1>Lugares</h1>
+                <div id="actions-lugares"></div>
+            </div>
+            <div id="content-lugares" class="content-area"></div>
+        </section>
+
+        <!-- Anuncios -->
+        <section class="section" id="sec-anuncios">
+            <div class="section-top">
+                <h1>Anuncios</h1>
+                <div id="actions-anuncios"></div>
+            </div>
+            <div id="content-anuncios" class="content-area"></div>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <p>© 2026 Life in Dreamworld</p>
+        <a href="admin.html">Panel de Moderación</a>
+    </footer>
+
+    <!-- Modal -->
+    <div class="modal-overlay" id="modalOverlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 id="modalTitle"></h3>
+                <button class="modal-close" id="modalClose">×</button>
+            </div>
+            <div class="modal-body" id="modalBody"></div>
+            <div class="modal-footer" id="modalFooter"></div>
+        </div>
+    </div>
+
+    <!-- Confirm -->
+    <div class="confirm-overlay" id="confirmOverlay">
+        <div class="confirm-box">
+            <h3 id="confirmTitle"></h3>
+            <p id="confirmMessage"></p>
+            <div class="confirm-btns">
+                <button class="btn btn-gray" id="confirmCancel">Cancelar</button>
+                <button class="btn btn-red" id="confirmAccept">Eliminar</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="toasts" id="toasts"></div>
+
+    <script src="js/storage.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
