@@ -199,11 +199,13 @@
 
     function cardHTML(type, i) {
         const icon = { temporadas:'📺', capitulos:'📖', personajes:'👤', comics:'💬', lore:'📜', lugares:'🗺️', anuncios:'📢' };
+        const roleBadge = (type === 'personajes' && i.role) ? `<div class="card-role">${i.role}</div>` : '';
         return `
         <div class="card" onclick="App.view('${type}','${i.id}')">
             <div class="card-img">${i.image ? `<img src="${i.image}">` : icon[type] || '📄'}</div>
             <div class="card-body">
                 <div class="card-title">${i.title || ''}</div>
+                ${roleBadge}
                 <div class="card-desc">${i.description || i.text || ''}</div>
             </div>
             <div class="card-footer">
@@ -224,6 +226,7 @@
         let body = '';
         if (i.image) body += `<div style="text-align:center;margin-bottom:16px;"><img src="${i.image}" style="max-width:100%;max-height:260px;border-radius:8px;"></div>`;
         body += `<h3 style="color:#fff;margin-bottom:10px;">${i.title||''}</h3>`;
+        if (type === 'personajes' && i.role) body += `<div style="display:inline-block;padding:4px 12px;background:rgba(34,211,238,0.15);color:#22d3ee;border-radius:12px;font-size:0.8rem;font-weight:600;margin-bottom:12px;">${i.role}</div>`;
         if (i.description) body += `<p style="color:#94a3b8;margin-bottom:10px;">${i.description}</p>`;
         if (i.text) body += `<p style="color:#94a3b8;margin-bottom:10px;">${i.text}</p>`;
         if (i.story) body += `<p style="color:#94a3b8;margin-bottom:10px;"><b style="color:#22d3ee">Historia:</b> ${i.story}</p>`;
@@ -257,6 +260,23 @@
                 <div class="form-group"><label>Portada</label><div class="image-upload" id="imgUp"><div class="placeholder">Subir imagen</div><input type="file" accept="image/*" id="fImg"></div></div>`,
             personajes: `
                 <div class="form-group"><label>Nombre</label><input id="fTitle" value="${i.title||''}"></div>
+                <div class="form-group"><label>Rol</label><select id="fRole">
+                    <option value="">Seleccionar...</option>
+                    <option value="Protagonista" ${i.role==='Protagonista'?'selected':''}>Protagonista</option>
+                    <option value="Protagonista Secundario" ${i.role==='Protagonista Secundario'?'selected':''}>Protagonista Secundario</option>
+                    <option value="Protagonista Terciario" ${i.role==='Protagonista Terciario'?'selected':''}>Protagonista Terciario</option>
+                    <option value="Deuteragonista" ${i.role==='Deuteragonista'?'selected':''}>Deuteragonista</option>
+                    <option value="Terciagonista" ${i.role==='Terciagonista'?'selected':''}>Terciagonista</option>
+                    <option value="Antagonista" ${i.role==='Antagonista'?'selected':''}>Antagonista</option>
+                    <option value="Antiheroe" ${i.role==='Antiheroe'?'selected':''}>Antiheroe</option>
+                    <option value="Villano" ${i.role==='Villano'?'selected':''}>Villano</option>
+                    <option value="Villano Secundario" ${i.role==='Villano Secundario'?'selected':''}>Villano Secundario</option>
+                    <option value="Personaje Neutral" ${i.role==='Personaje Neutral'?'selected':''}>Personaje Neutral</option>
+                    <option value="Mentor" ${i.role==='Mentor'?'selected':''}>Mentor</option>
+                    <option value="Aliado" ${i.role==='Aliado'?'selected':''}>Aliado</option>
+                    <option value="Rival" ${i.role==='Rival'?'selected':''}>Rival</option>
+                    <option value="Otros" ${i.role==='Otros'?'selected':''}>Otros</option>
+                </select></div>
                 <div class="form-group"><label>Descripción</label><textarea id="fDesc">${i.description||''}</textarea></div>
                 <div class="form-group"><label>Historia</label><textarea id="fStory">${i.story||''}</textarea></div>
                 <div class="form-group"><label>Imagen</label><div class="image-upload" id="imgUp"><div class="placeholder">Subir imagen</div><input type="file" accept="image/*" id="fImg"></div></div>`,
@@ -287,6 +307,7 @@
     function collectData() {
         const d = {};
         const t = document.getElementById('fTitle'); if (t) d.title = t.value.trim();
+        const role = document.getElementById('fRole'); if (role) d.role = role.value;
         const desc = document.getElementById('fDesc'); if (desc) d.description = desc.value.trim();
         const txt = document.getElementById('fText'); if (txt) d.text = txt.value.trim();
         const story = document.getElementById('fStory'); if (story) d.story = story.value.trim();
