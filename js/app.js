@@ -373,7 +373,8 @@
 
     // API
     window.App = {
-        init() {
+        async init() {
+            await DB.initPromise;
             user = DB.getSession();
             document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', () => nav(b.dataset.section)));
             document.getElementById('adminBtn').onclick = () => location.href = 'admin.html';
@@ -385,7 +386,6 @@
             nav('inicio');
         },
 
-        // Refresco condicional según tipo
         _refresh(type, extra) {
             if (type === 'capitulos' && extra) {
                 renderCapitulos(extra);
@@ -394,7 +394,6 @@
             }
         },
 
-        // Genéricos (con soporte para capitulos)
         add(type, tempId) {
             if (type === 'capitulos' && tempId) {
                 modal('Agregar Capítulo', formHTML('capitulos'), `
@@ -408,11 +407,11 @@
             setTimeout(setupUploads, 30);
         },
 
-        save(type, tempId) {
+        async save(type, tempId) {
             const d = collectData();
             if (!d.title) { toast('El título es requerido', 'error'); return; }
             if (type === 'capitulos' && tempId) d.temporadaId = tempId;
-            DB.addItem(type, d, user?.email || 'anon');
+            await DB.addItem(type, d, user?.email || 'anon');
             toast('Guardado', 'success'); closeModal();
             this._refresh(type, type === 'capitulos' ? (tempId || d.temporadaId) : null);
         },
@@ -435,25 +434,25 @@
             }, 30);
         },
 
-        update(type, id) {
+        async update(type, id) {
             const d = collectData();
             if (type === 'capitulos') {
                 const existing = DB.getItem('capitulos', id);
                 d.temporadaId = existing?.temporadaId;
             }
-            DB.updateItem(type, id, d, user?.email || 'anon');
+            await DB.updateItem(type, id, d, user?.email || 'anon');
             toast('Actualizado', 'success'); closeModal();
             this._refresh(type, type === 'capitulos' ? DB.getItem('capitulos', id)?.temporadaId : null);
         },
 
         del(type, id) {
-            confirm('¿Eliminar?', 'No se puede deshacer.', () => {
+            confirm('¿Eliminar?', 'No se puede deshacer.', async () => {
                 let tempId = null;
                 if (type === 'capitulos') {
                     const existing = DB.getItem('capitulos', id);
                     tempId = existing?.temporadaId;
                 }
-                DB.deleteItem(type, id, user?.email || 'anon');
+                await DB.deleteItem(type, id, user?.email || 'anon');
                 toast('Eliminado', 'success');
                 this._refresh(type, tempId);
             });
@@ -486,26 +485,21 @@
             modal('Capítulo', body);
         },
 
-        // Atajos para temporadas
         addTemporada() { this.add('temporadas'); },
         saveTemporada() { this.save('temporadas'); },
         editTemporada(id) { this.edit('temporadas', id); },
         updateTemporada(id) { this.update('temporadas', id); },
-        delTemporada(id) {
-            confirm('¿Eliminar temporada?', 'Se eliminarán también sus capítulos.', () => {
+        async delTemporada(id) {
+            confirm('¿Eliminar temporada?', 'Se eliminarán también sus capítulos.', async () => {
                 DB.getContent('capitulos').filter(c => c.temporadaId === id).forEach(c => DB.deleteItem('capitulos', c.id, user?.email || 'anon'));
-                DB.deleteItem('temporadas', id, user?.email || 'anon');
+                await DB.deleteItem('temporadas', id, user?.email || 'anon');
                 toast('Eliminada', 'success'); nav('temporadas');
             });
         },
         viewTemporada(id) { showTemporada(id); },
-
-        // Atajo para agregar capítulo desde vista de temporada
         addCapitulo(tempId) { this.add('capitulos', tempId); }
     };
 
     document.addEventListener('DOMContentLoaded', () => App.init());
-
-    // Expose closeModal globally
     window.closeModal = closeModal;
 })();

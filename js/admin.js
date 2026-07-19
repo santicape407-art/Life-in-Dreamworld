@@ -142,7 +142,8 @@
     }
 
     window.AP = {
-        init() {
+        async init() {
+            await DB.initPromise;
             user = DB.getSession();
             if (user) showAdmin();
 
@@ -197,32 +198,32 @@
                 <button class="btn btn-gray" onclick="closeModal()">Cancelar</button>
                 <button class="btn btn-cyan" onclick="AP.updateUser('${id}')">Actualizar</button>`);
         },
-        saveUser() {
+        async saveUser() {
             const email = document.getElementById('uEmail').value.trim();
             const name = document.getElementById('uName').value.trim();
             const pass = document.getElementById('uPass').value;
             const role = document.getElementById('uRole').value;
             const active = document.getElementById('uActive').value === 'true';
             if (!email || !pass) { toast('Correo y contraseña requeridos', 'error'); return; }
-            const r = DB.addUser({ email, name, pass, role, active });
+            const r = await DB.addUser({ email, name, pass, role, active });
             if (r.err) { toast(r.err, 'error'); return; }
             toast('Usuario creado', 'success'); closeModal(); renderUsers();
         },
-        updateUser(id) {
+        async updateUser(id) {
             const d = { name: document.getElementById('uName').value.trim(), role: document.getElementById('uRole').value, active: document.getElementById('uActive').value === 'true' };
             const pass = document.getElementById('uPass').value;
             if (pass) d.pass = pass;
-            DB.updateUser(id, d);
+            await DB.updateUser(id, d);
             toast('Actualizado', 'success'); closeModal(); renderUsers();
         },
         delUser(id) {
-            confirm('¿Eliminar usuario?', 'No se puede deshacer.', () => {
-                DB.deleteUser(id); toast('Eliminado', 'success'); renderUsers();
+            confirm('¿Eliminar usuario?', 'No se puede deshacer.', async () => {
+                await DB.deleteUser(id); toast('Eliminado', 'success'); renderUsers();
             });
         },
-        toggleUser(id) {
+        async toggleUser(id) {
             const u = DB.getUser(id);
-            DB.updateUser(id, { active: !u.active });
+            await DB.updateUser(id, { active: !u.active });
             toast(u.active ? 'Desactivado' : 'Activado', 'success'); renderUsers();
         },
 
@@ -232,30 +233,30 @@
                 <button class="btn btn-gray" onclick="closeModal()">Cancelar</button>
                 <button class="btn btn-cyan" onclick="AP.updateRole('${id}')">Actualizar</button>`);
         },
-        saveRole() {
+        async saveRole() {
             const id = document.getElementById('rId').value.trim();
             const name = document.getElementById('rName').value.trim();
             const perms = [...document.querySelectorAll('.rPerm:checked')].map(c => c.value);
             if (!id || !name) { toast('ID y nombre requeridos', 'error'); return; }
-            const r = DB.addRole({ id, name, perms });
+            const r = await DB.addRole({ id, name, perms });
             if (r.err) { toast(r.err, 'error'); return; }
             toast('Rol creado', 'success'); closeModal(); renderRoles();
         },
-        updateRole(id) {
+        async updateRole(id) {
             const name = document.getElementById('rName').value.trim();
             const perms = [...document.querySelectorAll('.rPerm:checked')].map(c => c.value);
-            DB.updateRole(id, { name, perms });
+            await DB.updateRole(id, { name, perms });
             toast('Actualizado', 'success'); closeModal(); renderRoles();
         },
         delRole(id) {
-            confirm('¿Eliminar rol?', 'No se puede deshacer.', () => {
-                DB.deleteRole(id); toast('Eliminado', 'success'); renderRoles();
+            confirm('¿Eliminar rol?', 'No se puede deshacer.', async () => {
+                await DB.deleteRole(id); toast('Eliminado', 'success'); renderRoles();
             });
         },
 
         delContent(type, id) {
-            confirm('¿Eliminar?', 'No se puede deshacer.', () => {
-                DB.deleteItem(type, id, user?.email || 'anon');
+            confirm('¿Eliminar?', 'No se puede deshacer.', async () => {
+                await DB.deleteItem(type, id, user?.email || 'anon');
                 toast('Eliminado', 'success'); renderContent();
             });
         }

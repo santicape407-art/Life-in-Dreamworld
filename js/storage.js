@@ -1,152 +1,211 @@
 const DB = (() => {
-    const K = { USERS: 'lid_u', ROLES: 'lid_r', CONTENT: 'lid_c', LOGS: 'lid_l', SESSION: 'lid_s', EMAILS: 'lid_e' };
+    const firebaseConfig = {
+        apiKey: "AIzaSyDMW7T11zuuSv87z6vErEFPBg6_ZcSG4CE",
+        authDomain: "life-in-dreamworld.firebaseapp.com",
+        projectId: "life-in-dreamworld",
+        storageBucket: "life-in-dreamworld.firebasestorage.app",
+        messagingSenderId: "748350579418",
+        appId: "1:748350579418:web:33caa3164c3ae1cad1bbe3"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
 
     function uid() { return Date.now().toString(36) + Math.random().toString(36).substr(2, 6); }
-    function get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } }
-    function set(k, v) { localStorage.setItem(k, JSON.stringify(v)); }
     function now() { return new Date().toISOString(); }
 
-    function log(user, action, detail) {
-        const logs = get(K.LOGS) || [];
-        logs.unshift({ id: uid(), user, action, detail, at: now() });
-        if (logs.length > 300) logs.length = 300;
-        set(K.LOGS, logs);
-    }
+    // Cache local para lecturas síncronas
+    let cache = { users: null, roles: null, content: null, logs: null, emails: null };
+    let ready = false;
 
-    function init() {
-        // Roles
-        if (!get(K.ROLES)) set(K.ROLES, [
-            { id: 'admin', name: 'Administrador', perms: ['create','read','update','delete','manage'] },
-            { id: 'mod', name: 'Moderador', perms: ['create','read','update','delete'] },
-            { id: 'editor', name: 'Editor', perms: ['create','read','update'] }
+    // Cargar todo desde Firestore al iniciar
+    async function loadAll() {
+        const [usersSnap, rolesSnap, contentSnap, logsSnap, emailsSnap] = await Promise.all([
+            db.collection('data').doc('users').get(),
+            db.collection('data').doc('roles').get(),
+            db.collection('data').doc('content').get(),
+            db.collection('data').doc('logs').get(),
+            db.collection('data').doc('emails').get()
         ]);
+        cache.users = usersSnap.exists ? usersSnap.data().list : [];
+        cache.roles = rolesSnap.exists ? rolesSnap.data().list : defaultRoles();
+        cache.content = contentSnap.exists ? contentSnap.data() : defaultContent();
+        cache.logs = logsSnap.exists ? logsSnap.data().list : [];
+        cache.emails = emailsSnap.exists ? emailsSnap.data().list : [];
 
-        // Users - siempre asegurar que exista el admin
-        const users = get(K.USERS) || [];
-        if (!users.find(u => u.email === 'santicape407@gmail.com')) {
-            users.push({
+        // Asegurar admin
+        if (!cache.users.find(u => u.email === 'santicape407@gmail.com')) {
+            cache.users.push({
                 id: 'admin_main', email: 'santicape407@gmail.com',
                 name: 'Administrador', pass: 'Sonicelde2011',
                 role: 'admin', active: true, at: now()
             });
-            set(K.USERS, users);
+            await saveUsers();
+        }
+        if (!cache.emails.includes('santicape407@gmail.com')) {
+            cache.emails.push('santicape407@gmail.com');
+            await saveEmails();
         }
 
-        // Emails autorizados
-        const emails = get(K.EMAILS) || [];
-        if (!emails.includes('santicape407@gmail.com')) {
-            emails.push('santicape407@gmail.com');
-            set(K.EMAILS, emails);
-        }
+        ready = true;
+    }
 
-        // Content
-        if (!get(K.CONTENT)) set(K.CONTENT, { temporadas: [], personajes: [], comics: [], lore: [], lugares: [], anuncios: [] });
+    function defaultRoles() {
+        return [
+            { id: 'admin', name: 'Administrador', perms: ['create','read','update','delete','manage'] },
+            { id: 'mod', name: 'Moderador', perms: ['create','read','update','delete'] },
+            { id: 'editor', name: 'Editor', perms: ['create','read','update'] }
+        ];
+    }
 
-        // Logs
-        if (!get(K.LOGS)) set(K.LOGS, []);
+    function defaultContent() {
+        return { temporadas: [], personajes: [], comics: [], lore: [], lugares: [], anuncios: [], capitulos: [] };
+    }
+
+    // Guardar en Firestore
+    async function saveUsers() { await db.collection('data').doc('users').set({ list: cache.users }); }
+    async function saveRoles() { await db.collection('data').doc('roles').set({ list: cache.roles }); }
+    async function saveContent() { await db.collection('data').doc('content').set(cache.content); }
+    async function saveLogs() { await db.collection('data').doc('logs').set({ list: cache.logs.slice(0, 300) }); }
+    async function saveEmails() { await db.collection('data').doc('emails').set({ list: cache.emails }); }
+
+    function log(user, action, detail) {
+        cache.logs.unshift({ id: uid(), user, action, detail, at: now() });
+        if (cache.logs.length > 300) cache.logs.length = 300;
+        saveLogs();
     }
 
     // Auth
     function login(email, pass) {
-        const users = get(K.USERS) || [];
-        const u = users.find(x => x.email === email);
+        const u = cache.users.find(x => x.email === email);
         if (!u) return { err: 'Correo no registrado' };
         if (!u.active) return { err: 'Cuenta desactivada' };
         if (u.pass !== pass) return { err: 'Contraseña incorrecta' };
-        const emails = get(K.EMAILS) || [];
-        if (emails.length > 0 && !emails.includes(email)) return { err: 'Correo no autorizado' };
-        set(K.SESSION, { id: u.id, email: u.email, name: u.name, role: u.role });
+        if (cache.emails.length > 0 && !cache.emails.includes(email)) return { err: 'Correo no autorizado' };
+        const session = { id: u.id, email: u.email, name: u.name, role: u.role };
+        localStorage.setItem('lid_s', JSON.stringify(session));
         return { ok: true };
     }
 
-    function getSession() { return get(K.SESSION); }
-    function logout() { localStorage.removeItem(K.SESSION); }
+    function getSession() {
+        try { return JSON.parse(localStorage.getItem('lid_s')); } catch { return null; }
+    }
+    function logout() { localStorage.removeItem('lid_s'); }
 
-    // Users CRUD
-    function getUsers() { return get(K.USERS) || []; }
-    function getUser(id) { return getUsers().find(u => u.id === id); }
-    function addUser(d) {
-        const users = getUsers();
-        if (users.find(u => u.email === d.email)) return { err: 'Correo ya registrado' };
+    // Users
+    function getUsers() { return cache.users || []; }
+    function getUser(id) { return (cache.users || []).find(u => u.id === id); }
+    async function addUser(d) {
+        if (cache.users.find(u => u.email === d.email)) return { err: 'Correo ya registrado' };
         const u = { id: uid(), email: d.email, name: d.name||'', pass: d.pass, role: d.role||'editor', active: true, at: now() };
-        users.push(u); set(K.USERS, users); log('system', 'create_user', u.email);
+        cache.users.push(u);
+        await saveUsers();
+        log('system', 'create_user', u.email);
         return { ok: true };
     }
-    function updateUser(id, d) {
-        const users = getUsers(); const i = users.findIndex(u => u.id === id);
+    async function updateUser(id, d) {
+        const i = cache.users.findIndex(u => u.id === id);
         if (i < 0) return { err: 'No encontrado' };
-        Object.assign(users[i], d); set(K.USERS, users); log('system', 'update_user', users[i].email);
+        Object.assign(cache.users[i], d);
+        await saveUsers();
+        log('system', 'update_user', cache.users[i].email);
         return { ok: true };
     }
-    function deleteUser(id) {
-        const users = getUsers(); const u = users.find(x => x.id === id);
-        set(K.USERS, users.filter(x => x.id !== id));
+    async function deleteUser(id) {
+        const u = cache.users.find(x => x.id === id);
+        cache.users = cache.users.filter(x => x.id !== id);
+        await saveUsers();
         if (u) log('system', 'delete_user', u.email);
         return { ok: true };
     }
 
-    // Roles CRUD
-    function getRoles() { return get(K.ROLES) || []; }
-    function addRole(d) {
-        const roles = getRoles();
-        if (roles.find(r => r.id === d.id)) return { err: 'Ya existe' };
-        roles.push({ id: d.id, name: d.name, perms: d.perms || [] });
-        set(K.ROLES, roles); return { ok: true };
+    // Roles
+    function getRoles() { return cache.roles || []; }
+    async function addRole(d) {
+        if (cache.roles.find(r => r.id === d.id)) return { err: 'Ya existe' };
+        cache.roles.push({ id: d.id, name: d.name, perms: d.perms || [] });
+        await saveRoles();
+        return { ok: true };
     }
-    function updateRole(id, d) {
-        const roles = getRoles(); const i = roles.findIndex(r => r.id === id);
+    async function updateRole(id, d) {
+        const i = cache.roles.findIndex(r => r.id === id);
         if (i < 0) return { err: 'No encontrado' };
-        Object.assign(roles[i], d); set(K.ROLES, roles); return { ok: true };
+        Object.assign(cache.roles[i], d);
+        await saveRoles();
+        return { ok: true };
     }
-    function deleteRole(id) {
-        set(K.ROLES, getRoles().filter(r => r.id !== id)); return { ok: true };
+    async function deleteRole(id) {
+        cache.roles = cache.roles.filter(r => r.id !== id);
+        await saveRoles();
+        return { ok: true };
     }
 
-    // Content CRUD
-    function getContent(type) { return (get(K.CONTENT) || {})[type] || []; }
-    function getItem(type, id) { return getContent(type).find(x => x.id === id); }
-    function addItem(type, d, user) {
-        const all = get(K.CONTENT) || {};
-        if (!all[type]) all[type] = [];
+    // Content
+    function getContent(type) { return (cache.content || {})[type] || []; }
+    function getItem(type, id) { return (cache.content[type] || []).find(x => x.id === id); }
+    async function addItem(type, d, user) {
+        if (!cache.content[type]) cache.content[type] = [];
         const item = { id: uid(), ...d, by: user, at: now(), up: now() };
-        all[type].push(item); set(K.CONTENT, all);
+        cache.content[type].push(item);
+        await saveContent();
         log(user, 'create', `${type}: ${d.title||''}`);
         return { ok: true, item };
     }
-    function updateItem(type, id, d, user) {
-        const all = get(K.CONTENT) || {};
-        const i = (all[type]||[]).findIndex(x => x.id === id);
+    async function updateItem(type, id, d, user) {
+        const list = cache.content[type] || [];
+        const i = list.findIndex(x => x.id === id);
         if (i < 0) return { err: 'No encontrado' };
-        Object.assign(all[type][i], d, { up: now() }); set(K.CONTENT, all);
+        Object.assign(list[i], d, { up: now() });
+        await saveContent();
         log(user, 'update', `${type}: ${d.title||''}`);
         return { ok: true };
     }
-    function deleteItem(type, id, user) {
-        const all = get(K.CONTENT) || {};
-        const item = (all[type]||[]).find(x => x.id === id);
-        all[type] = (all[type]||[]).filter(x => x.id !== id);
-        set(K.CONTENT, all);
+    async function deleteItem(type, id, user) {
+        const list = cache.content[type] || [];
+        const item = list.find(x => x.id === id);
+        cache.content[type] = list.filter(x => x.id !== id);
+        await saveContent();
         log(user, 'delete', `${type}: ${item?.title||id}`);
         return { ok: true };
     }
     function allContent() {
-        const all = get(K.CONTENT) || {};
         const r = [];
-        for (const t in all) all[t].forEach(i => r.push({ ...i, _t: t }));
+        for (const t in cache.content) (cache.content[t] || []).forEach(i => r.push({ ...i, _t: t }));
         return r.sort((a, b) => new Date(b.at) - new Date(a.at));
     }
 
     // Emails
-    function getEmails() { return get(K.EMAILS) || []; }
-    function addEmail(e) { const l = getEmails(); if (l.includes(e)) return { err: 'Ya autorizado' }; l.push(e); set(K.EMAILS, l); return { ok: true }; }
-    function removeEmail(e) { set(K.EMAILS, getEmails().filter(x => x !== e)); return { ok: true }; }
+    function getEmails() { return cache.emails || []; }
+    async function addEmail(e) {
+        if (cache.emails.includes(e)) return { err: 'Ya autorizado' };
+        cache.emails.push(e);
+        await saveEmails();
+        return { ok: true };
+    }
+    async function removeEmail(e) {
+        cache.emails = cache.emails.filter(x => x !== e);
+        await saveEmails();
+        return { ok: true };
+    }
 
     // Logs
-    function getLogs() { return get(K.LOGS) || []; }
+    function getLogs() { return cache.logs || []; }
 
-    init();
+    // Inicializar
+    const initPromise = loadAll().catch(e => {
+        console.error('Firebase init error:', e);
+        // Fallback: usar datos por defecto
+        cache.users = [{ id: 'admin_main', email: 'santicape407@gmail.com', name: 'Administrador', pass: 'Sonicelde2011', role: 'admin', active: true, at: now() }];
+        cache.roles = defaultRoles();
+        cache.content = defaultContent();
+        cache.logs = [];
+        cache.emails = ['santicape407@gmail.com'];
+        ready = true;
+    });
 
     return {
+        ready: () => ready,
+        initPromise,
         login, getSession, logout,
         getUsers, getUser, addUser, updateUser, deleteUser,
         getRoles, addRole, updateRole, deleteRole,
