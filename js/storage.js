@@ -49,7 +49,7 @@ const DB = (() => {
             const img = new Image();
             img.onload = () => {
                 const canvas = document.createElement('canvas');
-                const max = 150;
+                const max = 120;
                 let w = img.width, h = img.height;
                 if (w > max || h > max) {
                     if (w > h) { h = Math.round(h * max / w); w = max; }
@@ -58,10 +58,8 @@ const DB = (() => {
                 canvas.width = w;
                 canvas.height = h;
                 const ctx = canvas.getContext('2d');
-                ctx.fillStyle = '#0b1120';
-                ctx.fillRect(0, 0, w, h);
                 ctx.drawImage(img, 0, 0, w, h);
-                resolve(canvas.toDataURL('image/jpeg', 0.5));
+                resolve(canvas.toDataURL('image/png'));
             };
             img.onerror = () => resolve(base64);
             img.src = base64;
