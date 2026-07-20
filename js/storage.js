@@ -43,14 +43,13 @@ const DB = (() => {
         if (logsCache.length > 200) logsCache.length = 200;
     }
 
-    // Comprimir imagen base64 a max 200px, JPEG calidad 0.6
     function compressImage(base64) {
         return new Promise((resolve) => {
             if (!base64 || !base64.startsWith('data:image')) { resolve(base64); return; }
             const img = new Image();
             img.onload = () => {
                 const canvas = document.createElement('canvas');
-                const max = 200;
+                const max = 150;
                 let w = img.width, h = img.height;
                 if (w > max || h > max) {
                     if (w > h) { h = Math.round(h * max / w); w = max; }
@@ -59,7 +58,7 @@ const DB = (() => {
                 canvas.width = w;
                 canvas.height = h;
                 canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-                resolve(canvas.toDataURL('image/jpeg', 0.6));
+                resolve(canvas.toDataURL('image/jpeg', 0.5));
             };
             img.onerror = () => resolve(base64);
             img.src = base64;
@@ -68,9 +67,20 @@ const DB = (() => {
 
     async function pushType(type) {
         try {
-            const items = contentCache[type] || [];
-            await db.collection('content').doc(type).set({ items });
-        } catch(e) { console.warn('Push failed:', type, e.message); }
+            await db.collection('content').doc(type).set({ items: contentCache[type] || [] });
+        } catch(e) {
+            if (e.message && e.message.includes('size')) {
+                console.warn(`Push ${type} failed: document too large. Removing images and retrying...`);
+                const stripped = (contentCache[type] || []).map(i => {
+                    const c = { ...i };
+                    delete c.image;
+                    return c;
+                });
+                await db.collection('content').doc(type).set({ items: stripped });
+            } else {
+                console.warn('Push failed:', type, e.message);
+            }
+        }
     }
 
     async function syncToFirestore() {
@@ -254,7 +264,7 @@ const DB = (() => {
         const i = list.findIndex(x => x.id === id);
         if (i < 0) return { err: 'No encontrado' };
         Object.assign(list[i], d, { up: now() });
-        if (list[i].image && list[i].image.startsWith('data:image') && list[i].image.length > 5000) {
+        if (list[i].image && list[i].image.startsWith('data:image') && list[i].image.length > 3000) {
             list[i].image = await compressImage(list[i].image);
         }
         addLog(user, 'update', `${type}: ${d.title||''}`);
