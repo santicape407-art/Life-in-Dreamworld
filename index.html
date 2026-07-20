@@ -135,31 +135,23 @@
         </div>
     </div>
 
-    <!-- Crop Modal -->
+    <!-- Panel Extractor Modal -->
     <div class="modal-overlay" id="cropOverlay">
-        <div class="modal" style="max-width:700px;">
+        <div class="modal" style="max-width:750px;">
             <div class="modal-header">
-                <h3>Recortar imagen</h3>
+                <h3>Extraer viñetas</h3>
                 <button class="modal-close" onclick="closeCropModal()">×</button>
             </div>
             <div class="modal-body" style="padding:10px;">
-                <div id="cropContainer" style="position:relative;display:inline-block;max-width:100%;overflow:hidden;cursor:crosshair;">
+                <p style="color:var(--muted);font-size:0.85rem;margin-bottom:8px;">Hacé click en la imagen para agregar cubos. Arrastrá para mover. Usá las esquinas para redimensionar.</p>
+                <div id="cropContainer" style="position:relative;display:inline-block;max-width:100%;overflow:hidden;background:#1a1a2e;">
                     <img id="cropImg" style="display:block;max-width:100%;user-select:none;">
-                    <div id="cropBox" style="position:absolute;border:2px solid #22d3ee;background:rgba(34,211,238,0.1);display:none;">
-                        <div class="crop-handle" data-pos="nw" style="position:absolute;width:12px;height:12px;background:#22d3ee;border-radius:50%;top:-6px;left:-6px;cursor:nw-resize;"></div>
-                        <div class="crop-handle" data-pos="ne" style="position:absolute;width:12px;height:12px;background:#22d3ee;border-radius:50%;top:-6px;right:-6px;cursor:ne-resize;"></div>
-                        <div class="crop-handle" data-pos="sw" style="position:absolute;width:12px;height:12px;background:#22d3ee;border-radius:50%;bottom:-6px;left:-6px;cursor:sw-resize;"></div>
-                        <div class="crop-handle" data-pos="se" style="position:absolute;width:12px;height:12px;background:#22d3ee;border-radius:50%;bottom:-6px;right:-6px;cursor:se-resize;"></div>
-                        <div class="crop-handle" data-pos="n" style="position:absolute;width:100%;height:8px;top:-4px;cursor:n-resize;"></div>
-                        <div class="crop-handle" data-pos="s" style="position:absolute;width:100%;height:8px;bottom:-4px;cursor:s-resize;"></div>
-                        <div class="crop-handle" data-pos="w" style="position:absolute;width:8px;height:100%;left:-4px;cursor:w-resize;"></div>
-                        <div class="crop-handle" data-pos="e" style="position:absolute;width:8px;height:100%;right:-4px;cursor:e-resize;"></div>
-                    </div>
+                    <div id="cropBoxes"></div>
                 </div>
             </div>
             <div class="modal-footer">
                 <button class="btn btn-gray" onclick="closeCropModal()">Cancelar</button>
-                <button class="btn btn-cyan" onclick="applyCrop()">Recortar</button>
+                <button class="btn btn-cyan" onclick="applyPanels()">Extraer viñetas</button>
             </div>
         </div>
     </div>
@@ -169,7 +161,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
-    <script src="js/storage.js?v=19"></script>
-    <script src="js/app.js?v=19"></script>
+    <script src="js/storage.js?v=20"></script>
+    <script src="js/app.js?v=20"></script>
 </body>
 </html>

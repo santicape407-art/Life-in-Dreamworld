@@ -344,12 +344,10 @@
             fImg.onchange = e => {
                 const r = new FileReader();
                 r.onload = ev => {
-                    openCropModal(ev.target.result, cropped => {
-                        tempData.image = cropped;
-                        imgUp.classList.add('has-image');
-                        imgUp.innerHTML = `<img src="${cropped}"><input type="file" accept="image/*" id="fImg">`;
-                        document.getElementById('fImg').onchange = fImg.onchange;
-                    });
+                    tempData.image = ev.target.result;
+                    imgUp.classList.add('has-image');
+                    imgUp.innerHTML = `<img src="${ev.target.result}"><input type="file" accept="image/*" id="fImg">`;
+                    document.getElementById('fImg').onchange = fImg.onchange;
                 };
                 r.readAsDataURL(e.target.files[0]);
             };
@@ -359,14 +357,17 @@
         if (pUp && fP) {
             pUp.onclick = () => fP.click();
             fP.onchange = e => {
-                Array.from(e.target.files).forEach(f => {
-                    const r = new FileReader();
-                    r.onload = ev => {
-                        tempData.pages.push(ev.target.result);
+                const file = e.target.files[0];
+                if (!file) return;
+                const r = new FileReader();
+                r.onload = ev => {
+                    openPanelExtractor(ev.target.result, panels => {
+                        panels.forEach(p => tempData.pages.push(p));
                         renderPages();
-                    };
-                    r.readAsDataURL(f);
-                });
+                    });
+                };
+                r.readAsDataURL(file);
+                fP.value = '';
             };
         }
     }
@@ -522,38 +523,45 @@
         addCapitulo(tempId) { this.add('capitulos', tempId); }
     };
 
-    // ========= CROP TOOL =========
-    let cropState = { img: null, callback: null, box: { x: 0, y: 0, w: 0, h: 0 }, dragging: null, start: {} };
+    // ========= PANEL EXTRACTOR =========
+    let panelState = { boxes: [], activeBox: -1, dragging: null, start: {}, img: null, callback: null, dispW: 0, dispH: 0 };
 
-    window.openCropModal = function(src, callback) {
+    function makeBoxEl(idx, x, y, w, h) {
+        const colors = ['#22d3ee','#f472b6','#a78bfa','#34d399','#fbbf24','#fb923c','#f87171','#60a5fa'];
+        const color = colors[idx % colors.length];
+        return `<div class="panel-box" data-idx="${idx}" style="position:absolute;left:${x}px;top:${y}px;width:${w}px;height:${h}px;border:2px solid ${color};background:rgba(34,211,238,0.08);cursor:move;">
+            <span style="position:absolute;top:-18px;left:0;background:${color};color:#000;font-size:10px;padding:1px 5px;border-radius:3px;font-weight:700;">#${idx+1}</span>
+            <div class="crop-handle" data-pos="nw" style="position:absolute;width:10px;height:10px;background:${color};border-radius:50%;top:-5px;left:-5px;cursor:nw-resize;"></div>
+            <div class="crop-handle" data-pos="ne" style="position:absolute;width:10px;height:10px;background:${color};border-radius:50%;top:-5px;right:-5px;cursor:ne-resize;"></div>
+            <div class="crop-handle" data-pos="sw" style="position:absolute;width:10px;height:10px;background:${color};border-radius:50%;bottom:-5px;left:-5px;cursor:sw-resize;"></div>
+            <div class="crop-handle" data-pos="se" style="position:absolute;width:10px;height:10px;background:${color};border-radius:50%;bottom:-5px;right:-5px;cursor:se-resize;"></div>
+            <div class="crop-handle" data-pos="n" style="position:absolute;width:100%;height:6px;top:-3px;cursor:n-resize;"></div>
+            <div class="crop-handle" data-pos="s" style="position:absolute;width:100%;height:6px;bottom:-3px;cursor:s-resize;"></div>
+            <div class="crop-handle" data-pos="w" style="position:absolute;width:6px;height:100%;left:-3px;cursor:w-resize;"></div>
+            <div class="crop-handle" data-pos="e" style="position:absolute;width:6px;height:100%;right:-3px;cursor:e-resize;"></div>
+            <button onclick="event.stopPropagation();removeBox(${idx})" style="position:absolute;top:-8px;right:-8px;width:18px;height:18px;border:none;background:#ef4444;color:#fff;border-radius:50%;cursor:pointer;font-size:11px;line-height:18px;text-align:center;z-index:20;">×</button>
+        </div>`;
+    }
+
+    function renderPanelBoxes() {
+        const c = document.getElementById('cropBoxes');
+        if (!c) return;
+        c.innerHTML = panelState.boxes.map((b, i) => makeBoxEl(i, b.x, b.y, b.w, b.h)).join('');
+    }
+
+    window.removeBox = function(idx) {
+        panelState.boxes.splice(idx, 1);
+        renderPanelBoxes();
+    };
+
+    window.openPanelExtractor = function(src, callback) {
         const overlay = document.getElementById('cropOverlay');
         const img = document.getElementById('cropImg');
-        const box = document.getElementById('cropBox');
         const container = document.getElementById('cropContainer');
 
         img.onload = () => {
-            const ratio = img.naturalWidth / img.naturalWidth;
-            const displayW = img.clientWidth;
-            const displayH = img.clientHeight;
-
-            const cw = Math.round(displayW * 0.6);
-            const ch = Math.round(displayH * 0.6);
-            const cx = Math.round((displayW - cw) / 2);
-            const cy = Math.round((displayH - ch) / 2);
-
-            box.style.left = cx + 'px';
-            box.style.top = cy + 'px';
-            box.style.width = cw + 'px';
-            box.style.height = ch + 'px';
-            box.style.display = 'block';
-
-            cropState = {
-                img, callback, container,
-                natW: img.naturalWidth, natH: img.naturalHeight,
-                dispW: displayW, dispH: displayH,
-                box: { x: cx, y: cy, w: cw, h: ch },
-                dragging: null, start: {}
-            };
+            panelState = { boxes: [], activeBox: -1, dragging: null, start: {}, img, callback, dispW: img.clientWidth, dispH: img.clientHeight };
+            renderPanelBoxes();
         };
         img.src = src;
         overlay.classList.add('active');
@@ -563,47 +571,61 @@
         document.getElementById('cropOverlay').classList.remove('active');
     };
 
-    window.applyCrop = function() {
-        const s = cropState;
-        if (!s.img) { closeCropModal(); return; }
+    window.applyPanels = function() {
+        const s = panelState;
+        if (!s.img || s.boxes.length === 0) { closeCropModal(); return; }
 
-        const scaleX = s.natW / s.dispW;
-        const scaleY = s.natH / s.dispH;
+        const scaleX = s.img.naturalWidth / s.dispW;
+        const scaleY = s.img.naturalHeight / s.dispH;
+        const results = [];
 
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.round(s.box.w * scaleX);
-        canvas.height = Math.round(s.box.h * scaleY);
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(s.img,
-            Math.round(s.box.x * scaleX), Math.round(s.box.y * scaleY),
-            canvas.width, canvas.height,
-            0, 0, canvas.width, canvas.height
-        );
+        s.boxes.forEach(b => {
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.round(b.w * scaleX);
+            canvas.height = Math.round(b.h * scaleY);
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(s.img,
+                Math.round(b.x * scaleX), Math.round(b.y * scaleY),
+                canvas.width, canvas.height,
+                0, 0, canvas.width, canvas.height
+            );
+            results.push(canvas.toDataURL('image/png'));
+        });
 
-        const result = canvas.toDataURL('image/png');
-        if (s.callback) s.callback(result);
+        if (s.callback) s.callback(results);
         closeCropModal();
     };
 
-    // Drag & resize handlers
     document.addEventListener('DOMContentLoaded', () => {
-        const box = document.getElementById('cropBox');
         const container = document.getElementById('cropContainer');
 
-        box.addEventListener('mousedown', e => {
+        // Click on image to add new box
+        container.addEventListener('click', e => {
+            if (e.target.closest('.panel-box') || e.target.closest('.crop-handle') || e.target.tagName === 'BUTTON') return;
+            const rect = container.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            const w = 80, h = 80;
+            panelState.boxes.push({ x: Math.max(0, x - w/2), y: Math.max(0, y - h/2), w, h });
+            renderPanelBoxes();
+        });
+
+        // Drag & resize
+        document.addEventListener('mousedown', e => {
             const handle = e.target.closest('.crop-handle');
-            if (handle) {
-                cropState.dragging = handle.dataset.pos;
-            } else {
-                cropState.dragging = 'move';
-            }
-            cropState.start = { mx: e.clientX, my: e.clientY, ...cropState.box };
+            const boxEl = e.target.closest('.panel-box');
+            if (!boxEl && !handle) return;
+
+            const idx = parseInt((handle || boxEl).closest('.panel-box').dataset.idx);
+            panelState.activeBox = idx;
+            panelState.dragging = handle ? handle.dataset.pos : 'move';
+            panelState.start = { mx: e.clientX, my: e.clientY, ...panelState.boxes[idx] };
             e.preventDefault();
         });
 
         document.addEventListener('mousemove', e => {
-            if (!cropState.dragging) return;
-            const s = cropState;
+            if (panelState.dragging === null) return;
+            const s = panelState;
             const dx = e.clientX - s.start.mx;
             const dy = e.clientY - s.start.my;
             const pos = s.dragging;
@@ -613,66 +635,49 @@
                 x = Math.max(0, Math.min(s.dispW - w, x + dx));
                 y = Math.max(0, Math.min(s.dispH - h, y + dy));
             } else if (pos === 'se') {
-                w = Math.max(30, Math.min(s.dispW - x, w + dx));
-                h = Math.max(30, Math.min(s.dispH - y, h + dy));
+                w = Math.max(20, Math.min(s.dispW - x, w + dx));
+                h = Math.max(20, Math.min(s.dispH - y, h + dy));
             } else if (pos === 'sw') {
-                const nw = Math.max(30, w - dx);
-                x = x + (w - nw);
-                w = nw;
-                h = Math.max(30, Math.min(s.dispH - y, h + dy));
+                const nw = Math.max(20, w - dx); x += (w - nw); w = nw;
+                h = Math.max(20, Math.min(s.dispH - y, h + dy));
             } else if (pos === 'ne') {
-                w = Math.max(30, Math.min(s.dispW - x, w + dx));
-                const nh = Math.max(30, h - dy);
-                y = y + (h - nh);
-                h = nh;
+                w = Math.max(20, Math.min(s.dispW - x, w + dx));
+                const nh = Math.max(20, h - dy); y += (h - nh); h = nh;
             } else if (pos === 'nw') {
-                const nw = Math.max(30, w - dx);
-                const nh = Math.max(30, h - dy);
-                x = x + (w - nw);
-                y = y + (h - nh);
-                w = nw;
-                h = nh;
-            } else if (pos === 'n') {
-                const nh = Math.max(30, h - dy);
-                y = y + (h - nh);
-                h = nh;
-            } else if (pos === 's') {
-                h = Math.max(30, Math.min(s.dispH - y, h + dy));
-            } else if (pos === 'w') {
-                const nw = Math.max(30, w - dx);
-                x = x + (w - nw);
-                w = nw;
-            } else if (pos === 'e') {
-                w = Math.max(30, Math.min(s.dispW - x, w + dx));
-            }
+                const nw = Math.max(20, w - dx); const nh = Math.max(20, h - dy);
+                x += (w - nw); y += (h - nh); w = nw; h = nh;
+            } else if (pos === 'n') { const nh = Math.max(20, h - dy); y += (h - nh); h = nh; }
+            else if (pos === 's') { h = Math.max(20, Math.min(s.dispH - y, h + dy)); }
+            else if (pos === 'w') { const nw = Math.max(20, w - dx); x += (w - nw); w = nw; }
+            else if (pos === 'e') { w = Math.max(20, Math.min(s.dispW - x, w + dx)); }
 
-            s.box = { x, y, w, h };
-            box.style.left = x + 'px';
-            box.style.top = y + 'px';
-            box.style.width = w + 'px';
-            box.style.height = h + 'px';
+            s.boxes[s.activeBox] = { x, y, w, h };
+            renderPanelBoxes();
         });
 
-        document.addEventListener('mouseup', () => { cropState.dragging = null; });
+        document.addEventListener('mouseup', () => { panelState.dragging = null; panelState.activeBox = -1; });
 
-        // Touch support
-        box.addEventListener('touchstart', e => {
-            const t = e.touches[0];
+        // Touch
+        document.addEventListener('touchstart', e => {
+            const boxEl = e.target.closest('.panel-box');
             const handle = e.target.closest('.crop-handle');
-            cropState.dragging = handle ? handle.dataset.pos : 'move';
-            cropState.start = { mx: t.clientX, my: t.clientY, ...cropState.box };
+            if (!boxEl && !handle) return;
+            const t = e.touches[0];
+            const idx = parseInt((handle || boxEl).closest('.panel-box').dataset.idx);
+            panelState.activeBox = idx;
+            panelState.dragging = handle ? handle.dataset.pos : 'move';
+            panelState.start = { mx: t.clientX, my: t.clientY, ...panelState.boxes[idx] };
             e.preventDefault();
         }, { passive: false });
 
         document.addEventListener('touchmove', e => {
-            if (!cropState.dragging) return;
+            if (panelState.dragging === null) return;
             const t = e.touches[0];
-            const fakeE = { clientX: t.clientX, clientY: t.clientY };
-            document.dispatchEvent(new MouseEvent('mousemove', fakeE));
+            document.dispatchEvent(new MouseEvent('mousemove', { clientX: t.clientX, clientY: t.clientY }));
             e.preventDefault();
         }, { passive: false });
 
-        document.addEventListener('touchend', () => { cropState.dragging = null; });
+        document.addEventListener('touchend', () => { panelState.dragging = null; panelState.activeBox = -1; });
     });
 
     document.addEventListener('DOMContentLoaded', () => App.init());
