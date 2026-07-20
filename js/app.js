@@ -14,6 +14,23 @@
         setTimeout(() => t.remove(), 3000);
     }
 
+    // Simple markdown: # -** * \n
+    function formatText(text) {
+        if (!text) return '';
+        let html = text
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/^### (.+)$/gm, '<h4>$1</h4>')
+            .replace(/^## (.+)$/gm, '<h3>$1</h3>')
+            .replace(/^# (.+)$/gm, '<h2>$1</h2>')
+            .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+            .replace(/\*(.+?)\*/g, '<em>$1</em>')
+            .replace(/~~(.+?)~~/g, '<del>$1</del>')
+            .replace(/`(.+?)`/g, '<code>$1</code>')
+            .replace(/^- (.+)$/gm, '• $1')
+            .replace(/\n/g, '<br>');
+        return html;
+    }
+
     // Modal
     function modal(title, body, footer = '') {
         document.getElementById('modalTitle').textContent = title;
@@ -110,7 +127,7 @@
                                     <div class="cap-num">${c.chapterNumber || '-'}</div>
                                     <div class="cap-info">
                                         <div class="cap-title">${c.title || ''}</div>
-                                        <div class="cap-desc">${c.description || ''}</div>
+                                        <div class="cap-desc">${formatText(c.description || '')}</div>
                                     </div>
                                     ${c.image ? `<img src="${c.image}" class="cap-thumb">` : ''}
                                 </div>
@@ -133,7 +150,7 @@
                     <div class="anuncio-body">
                         <div class="anuncio-title">${a.title || ''}</div>
                         <div class="anuncio-date">${a.date ? new Date(a.date).toLocaleDateString('es') : ''}</div>
-                        <div class="anuncio-text">${a.text || ''}</div>
+                        <div class="anuncio-text">${formatText(a.text || '')}</div>
                     </div>
                 </div>`;
             });
@@ -158,7 +175,7 @@
                 <div class="card-img">${i.image ? `<img src="${i.image}">` : '📺'}</div>
                 <div class="card-body">
                     <div class="card-title">${i.title}</div>
-                    <div class="card-desc">${i.description || ''}</div>
+                    <div class="card-desc">${formatText(i.description || '')}</div>
                 </div>
                 <div class="card-footer">
                     <span>${(DB.getContent('capitulos').filter(c => c.temporadaId === i.id)).length} capítulos</span>
@@ -206,7 +223,7 @@
             <div class="card-body">
                 <div class="card-title">${i.title || ''}</div>
                 ${roleBadge}
-                <div class="card-desc">${i.description || i.text || ''}</div>
+                <div class="card-desc">${formatText(i.description || i.text || '')}</div>
             </div>
             <div class="card-footer">
                 <span>${i.at ? new Date(i.at).toLocaleDateString('es') : ''}</span>
@@ -227,9 +244,9 @@
         if (i.image) body += `<div style="text-align:center;margin-bottom:16px;"><img src="${i.image}" style="max-width:100%;max-height:260px;border-radius:8px;"></div>`;
         body += `<h3 style="color:#fff;margin-bottom:10px;">${i.title||''}</h3>`;
         if (type === 'personajes' && i.role) body += `<div style="display:inline-block;padding:4px 12px;background:rgba(34,211,238,0.15);color:#22d3ee;border-radius:12px;font-size:0.8rem;font-weight:600;margin-bottom:12px;">${i.role}</div>`;
-        if (i.description) body += `<p style="color:#94a3b8;margin-bottom:10px;">${i.description}</p>`;
-        if (i.text) body += `<p style="color:#94a3b8;margin-bottom:10px;">${i.text}</p>`;
-        if (i.story) body += `<p style="color:#94a3b8;margin-bottom:10px;"><b style="color:#22d3ee">Historia:</b> ${i.story}</p>`;
+        if (i.description) body += `<p style="color:#94a3b8;margin-bottom:10px;">${formatText(i.description)}</p>`;
+        if (i.text) body += `<p style="color:#94a3b8;margin-bottom:10px;">${formatText(i.text)}</p>`;
+        if (i.story) body += `<p style="color:#94a3b8;margin-bottom:10px;"><b style="color:#22d3ee">Historia:</b> ${formatText(i.story)}</p>`;
         if (i.chapterNumber) body += `<p style="color:#94a3b8;">Capítulo Nº: ${i.chapterNumber}</p>`;
         if (i.date) body += `<p style="color:#94a3b8;">Fecha: ${i.date}</p>`;
         if (i.pages?.length) {
@@ -484,7 +501,7 @@
             if (c.image) body += `<div style="text-align:center;margin-bottom:16px;"><img src="${c.image}" style="max-width:100%;max-height:260px;border-radius:8px;"></div>`;
             body += `<h3 style="color:#fff;margin-bottom:6px;">${c.title||''}</h3>`;
             if (c.chapterNumber) body += `<p style="color:var(--cyan);font-size:0.85rem;margin-bottom:10px;">Capítulo ${c.chapterNumber}</p>`;
-            if (c.description) body += `<p style="color:#94a3b8;">${c.description}</p>`;
+            if (c.description) body += `<p style="color:#94a3b8;">${formatText(c.description)}</p>`;
             modal('Capítulo', body);
         },
 
