@@ -19,6 +19,8 @@ const DB = (() => {
     function ls(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } }
     function ss(k, v) { localStorage.setItem(k, JSON.stringify(v)); }
 
+    const CONTENT_TYPES = ['temporadas','personajes','comics','lore','lugares','anuncios','capitulos'];
+
     function defaultContent() {
         return { temporadas: [], personajes: [], comics: [], lore: [], lugares: [], anuncios: [], capitulos: [] };
     }
@@ -33,22 +35,27 @@ const DB = (() => {
         ss(K.LOGS, logsCache);
     }
 
-    // Cola de sincronización: siempre escribe todo el estado
+    // Sync: cada tipo de contenido en su propio documento para no exceder 1MB
     let syncing = false;
     let syncQueued = false;
+
     async function syncToFirestore() {
         if (syncQueued) return;
         syncQueued = true;
         while (syncing) { await new Promise(r => setTimeout(r, 500)); syncQueued = false; }
         syncing = true;
         try {
-            await db.collection('site').doc('content').set(contentCache);
-            await db.collection('site').doc('users_meta').set({ list: usersMetaCache });
-            await db.collection('site').doc('logs').set({ list: logsCache.slice(0, 300) });
+            const batch = db.batch();
+            CONTENT_TYPES.forEach(type => {
+                const ref = db.collection('content').doc(type);
+                batch.set(ref, { items: contentCache[type] || [] });
+            });
+            batch.set(db.collection('site').doc('users_meta'), { list: usersMetaCache });
+            batch.set(db.collection('site').doc('logs'), { list: logsCache.slice(0, 200) });
+            await batch.commit();
             console.log('✓ Synced to Firestore');
         } catch(e) {
             console.warn('✗ Firestore sync failed:', e.message);
-            // Reintentar en 2 segundos
             setTimeout(() => { syncing = false; syncToFirestore(); }, 2000);
             return;
         }
@@ -57,39 +64,31 @@ const DB = (() => {
 
     function addLog(user, action, detail) {
         logsCache.unshift({ id: uid(), user, action, detail, at: now() });
-        if (logsCache.length > 300) logsCache.length = 300;
+        if (logsCache.length > 200) logsCache.length = 200;
     }
 
-    // Init: cargar todo desde Firestore, mezclar con local, y subir
+    // Init: cargar desde Firestore, mezclar con local
     const initPromise = (async () => {
         try {
-            const [cSnap, uSnap, lSnap] = await Promise.all([
-                db.collection('site').doc('content').get(),
-                db.collection('site').doc('users_meta').get(),
-                db.collection('site').doc('logs').get()
-            ]);
+            // Cargar cada tipo por separado
+            const typeSnaps = await Promise.all(
+                CONTENT_TYPES.map(t => db.collection('content').doc(t).get())
+            );
+            const uSnap = await db.collection('site').doc('users_meta').get();
 
-            const cloudC = cSnap.exists ? cSnap.data() : null;
-            const cloudU = uSnap.exists ? uSnap.data().list : null;
-            const cloudL = lSnap.exists ? lSnap.data().list : null;
-
-            // Mezclar contenido
-            if (cloudC) {
-                const merged = {};
-                const allTypes = new Set([...Object.keys(contentCache), ...Object.keys(cloudC)]);
-                allTypes.forEach(type => {
-                    const local = contentCache[type] || [];
-                    const cloud = cloudC[type] || [];
-                    const map = new Map();
-                    local.forEach(i => map.set(i.id, i));
-                    cloud.forEach(i => { if (!map.has(i.id)) map.set(i.id, i); });
-                    merged[type] = [...map.values()];
-                });
-                contentCache = merged;
-            }
+            typeSnaps.forEach((snap, i) => {
+                const type = CONTENT_TYPES[i];
+                const cloudItems = snap.exists ? (snap.data().items || []) : [];
+                const localItems = contentCache[type] || [];
+                const map = new Map();
+                localItems.forEach(item => map.set(item.id, item));
+                cloudItems.forEach(item => { if (!map.has(item.id)) map.set(item.id, item); });
+                contentCache[type] = [...map.values()];
+            });
 
             // Mezclar usuarios
-            if (cloudU) {
+            if (uSnap.exists) {
+                const cloudU = uSnap.data().list || [];
                 const map = new Map();
                 usersMetaCache.forEach(u => map.set(u.id, u));
                 cloudU.forEach(u => { if (!map.has(u.id)) map.set(u.id, u); });
