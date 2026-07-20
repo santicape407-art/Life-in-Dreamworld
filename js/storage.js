@@ -49,7 +49,7 @@ const DB = (() => {
             const img = new Image();
             img.onload = () => {
                 const canvas = document.createElement('canvas');
-                const max = 120;
+                const max = 200;
                 let w = img.width, h = img.height;
                 if (w > max || h > max) {
                     if (w > h) { h = Math.round(h * max / w); w = max; }
@@ -88,7 +88,6 @@ const DB = (() => {
         try {
             await Promise.all(CONTENT_TYPES.map(t => pushType(t)));
             await db.collection('site').doc('users_meta').set({ list: usersMetaCache });
-            await db.collection('site').doc('logs').set({ list: logsCache.slice(0, 200) });
             console.log('✓ Pushed to Firestore');
         } catch(e) {
             console.warn('✗ Push failed:', e.message);
