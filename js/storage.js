@@ -33,12 +33,21 @@ const DB = (() => {
     function saveLogsLocal() { ss(K.LOGS, logsCache); }
     function saveUsersMetaLocal() { ss(K.USERS_META, usersMetaCache); }
 
+    let syncPending = false;
     async function syncToFirestore() {
+        if (syncPending) return;
+        syncPending = true;
         try {
             await db.collection('site').doc('content').set(contentCache);
-            await db.collection('site').doc('logs').set({ list: logsCache.slice(0, 300) });
             await db.collection('site').doc('users_meta').set({ list: usersMetaCache });
-        } catch(e) { console.warn('Firestore sync error:', e); }
+            await db.collection('site').doc('logs').set({ list: logsCache.slice(0, 300) });
+            console.log('Synced to Firestore');
+        } catch(e) {
+            console.warn('Firestore sync failed, retrying in 3s:', e.message);
+            setTimeout(() => { syncPending = false; syncToFirestore(); }, 3000);
+            return;
+        }
+        syncPending = false;
     }
 
     function addLog(user, action, detail) {
@@ -47,7 +56,7 @@ const DB = (() => {
         saveLogsLocal();
     }
 
-    // Init: cargar de Firestore y mezclar con localStorage
+    // Init: cargar de Firestore y mezclar bidireccionalmente
     const initPromise = (async () => {
         try {
             const [cSnap, uSnap, lSnap] = await Promise.all([
@@ -60,36 +69,51 @@ const DB = (() => {
             const cloudUsers = uSnap.exists ? uSnap.data().list : null;
             const cloudLogs = lSnap.exists ? lSnap.data().list : null;
 
-            // Mezclar contenido: unir ambos, sin duplicar por id
             if (cloudContent) {
-                for (const type in cloudContent) {
+                // Mezclar bidireccionalmente
+                for (const type in contentCache) {
                     const cloudItems = cloudContent[type] || [];
                     const localItems = contentCache[type] || [];
-                    const ids = new Set(localItems.map(i => i.id));
-                    cloudItems.forEach(i => { if (!ids.has(i.id)) localItems.push(i); });
-                    contentCache[type] = localItems;
+                    const allIds = new Map();
+                    localItems.forEach(i => allIds.set(i.id, i));
+                    cloudItems.forEach(i => { if (!allIds.has(i.id)) allIds.set(i.id, i); });
+                    contentCache[type] = [...allIds.values()];
+                }
+                // También agregar tipos que solo existen en cloud
+                for (const type in cloudContent) {
+                    if (!contentCache[type]) contentCache[type] = cloudContent[type] || [];
                 }
                 saveContentLocal();
             }
 
-            if (cloudUsers && cloudUsers.length > usersMetaCache.length) {
-                usersMetaCache = cloudUsers;
+            // SIEMPRE subir a Firestore lo que tengamos local
+            syncToFirestore();
+
+            if (cloudUsers) {
+                const allIds = new Map();
+                usersMetaCache.forEach(u => allIds.set(u.id, u));
+                cloudUsers.forEach(u => { if (!allIds.has(u.id)) allIds.set(u.id, u); });
+                usersMetaCache = [...allIds.values()];
                 saveUsersMetaLocal();
             }
 
-            if (cloudLogs && cloudLogs.length > logsCache.length) {
-                logsCache = cloudLogs;
-                saveLogsLocal();
+            if (!usersMetaCache.find(u => u.email === 'santicape407@gmail.com')) {
+                usersMetaCache.push({
+                    id: 'admin_main', email: 'santicape407@gmail.com',
+                    name: 'Administrador', role: 'admin', active: true, at: now()
+                });
+                saveUsersMetaLocal();
             }
-        } catch(e) { console.warn('Firestore init error:', e); }
-
-        // Asegurar admin
-        if (!usersMetaCache.find(u => u.email === 'santicape407@gmail.com')) {
-            usersMetaCache.push({
-                id: 'admin_main', email: 'santicape407@gmail.com',
-                name: 'Administrador', role: 'admin', active: true, at: now()
-            });
-            saveUsersMetaLocal();
+            syncToFirestore();
+        } catch(e) {
+            console.warn('Firestore init error:', e);
+            if (!usersMetaCache.find(u => u.email === 'santicape407@gmail.com')) {
+                usersMetaCache.push({
+                    id: 'admin_main', email: 'santicape407@gmail.com',
+                    name: 'Administrador', role: 'admin', active: true, at: now()
+                });
+                saveUsersMetaLocal();
+            }
         }
     })();
 
