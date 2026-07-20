@@ -57,7 +57,10 @@ const DB = (() => {
                 }
                 canvas.width = w;
                 canvas.height = h;
-                canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+                const ctx = canvas.getContext('2d');
+                ctx.fillStyle = '#0b1120';
+                ctx.fillRect(0, 0, w, h);
+                ctx.drawImage(img, 0, 0, w, h);
                 resolve(canvas.toDataURL('image/jpeg', 0.5));
             };
             img.onerror = () => resolve(base64);
