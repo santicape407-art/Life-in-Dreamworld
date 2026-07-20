@@ -217,10 +217,16 @@
     function cardHTML(type, i) {
         const icon = { temporadas:'📺', capitulos:'📖', personajes:'👤', comics:'💬', lore:'📜', lugares:'🗺️', anuncios:'📢' };
         const roleBadge = (type === 'personajes' && i.role) ? `<div class="card-role">${i.role}</div>` : '';
+        let tempBadge = '';
+        if (type === 'comics' && i.temporadaId) {
+            const t = DB.getItem('temporadas', i.temporadaId);
+            if (t) tempBadge = `<div style="color:var(--cyan);font-size:0.75rem;margin-bottom:4px;">📺 ${t.title}</div>`;
+        }
         return `
         <div class="card" onclick="App.view('${type}','${i.id}')">
             <div class="card-img">${i.image ? `<img src="${i.image}">` : icon[type] || '📄'}</div>
             <div class="card-body">
+                ${tempBadge}
                 <div class="card-title">${i.title || ''}</div>
                 ${roleBadge}
                 <div class="card-desc">${formatText(i.description || i.text || '')}</div>
@@ -298,6 +304,7 @@
                 <div class="form-group"><label>Historia</label><textarea id="fStory">${i.story||''}</textarea></div>
                 <div class="form-group"><label>Imagen</label><div class="image-upload" id="imgUp"><div class="placeholder">Subir imagen</div><input type="file" accept="image/*" id="fImg"></div></div>`,
             comics: `
+                <div class="form-group"><label>Temporada</label><select id="fTemp"><option value="">Sin temporada</option>${DB.getContent('temporadas').map(t => `<option value="${t.id}" ${i.temporadaId===t.id?'selected':''}>${t.title}</option>`).join('')}</select></div>
                 <div class="form-group"><label>Título</label><input id="fTitle" value="${i.title||''}"></div>
                 <div class="form-group"><label>Descripción</label><textarea id="fDesc">${i.description||''}</textarea></div>
                 <div class="form-group"><label>Portada</label><div class="image-upload" id="imgUp"><div class="placeholder">Subir imagen</div><input type="file" accept="image/*" id="fImg"></div></div>
@@ -328,6 +335,7 @@
         const desc = document.getElementById('fDesc'); if (desc) d.description = desc.value.trim();
         const txt = document.getElementById('fText'); if (txt) d.text = txt.value.trim();
         const story = document.getElementById('fStory'); if (story) d.story = story.value.trim();
+        const temp = document.getElementById('fTemp'); if (temp) d.temporadaId = temp.value || null;
         const num = document.getElementById('fNum'); if (num) d.chapterNumber = num.value;
         const date = document.getElementById('fDate'); if (date) d.date = date.value;
         if (tempData.image) d.image = tempData.image;
