@@ -49,7 +49,7 @@ const DB = (() => {
             const img = new Image();
             img.onload = () => {
                 const canvas = document.createElement('canvas');
-                const max = 150;
+                const max = 100;
                 let w = img.width, h = img.height;
                 if (w > max || h > max) {
                     if (w > h) { h = Math.round(h * max / w); w = max; }
