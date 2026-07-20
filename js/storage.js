@@ -43,10 +43,19 @@ const DB = (() => {
         if (logsCache.length > 200) logsCache.length = 200;
     }
 
-    // Push local → Firestore (sin usar batch grande, uno por tipo)
+    // Strip imágenes (base64 pesa demasiado para Firestore, límite 1MB)
+    function stripImages(items) {
+        return items.map(item => {
+            const clean = { ...item };
+            if (clean.image && clean.image.length > 1000) delete clean.image;
+            return clean;
+        });
+    }
+
     async function pushType(type) {
         try {
-            await db.collection('content').doc(type).set({ items: contentCache[type] || [] });
+            const items = stripImages(contentCache[type] || []);
+            await db.collection('content').doc(type).set({ items });
         } catch(e) { console.warn('Push failed:', type, e.message); }
     }
 
@@ -75,7 +84,10 @@ const DB = (() => {
                     if (!map.has(i.id)) { map.set(i.id, i); changed = true; }
                     else {
                         const local = map.get(i.id);
-                        if (i.up && local.up && i.up > local.up) { map.set(i.id, i); changed = true; }
+                        if (i.up && local.up && i.up > local.up) {
+                            map.set(i.id, { ...i, image: local.image || i.image });
+                            changed = true;
+                        }
                     }
                 });
                 localItems.forEach(i => {
@@ -126,7 +138,14 @@ const DB = (() => {
                 const localItems = contentCache[type] || [];
                 const map = new Map();
                 localItems.forEach(item => map.set(item.id, item));
-                cloudItems.forEach(item => map.set(item.id, item));
+                cloudItems.forEach(item => {
+                    if (!map.has(item.id)) {
+                        map.set(item.id, item);
+                    } else {
+                        const local = map.get(item.id);
+                        map.set(item.id, { ...item, ...local });
+                    }
+                });
                 contentCache[type] = [...map.values()];
             });
 
@@ -147,7 +166,7 @@ const DB = (() => {
                 if (migrated) {
                     const batch = db.batch();
                     CONTENT_TYPES.forEach(type => {
-                        batch.set(db.collection('content').doc(type), { items: contentCache[type] || [] });
+                        batch.set(db.collection('content').doc(type), { items: stripImages(contentCache[type] || []) });
                     });
                     await batch.commit();
                     console.log('✓ Migrated old data');
