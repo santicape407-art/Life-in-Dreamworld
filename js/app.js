@@ -251,6 +251,7 @@
         body += `<h3 style="color:#fff;margin-bottom:10px;">${i.title||''}</h3>`;
         if (type === 'personajes' && i.role) body += `<div style="display:inline-block;padding:4px 12px;background:rgba(34,211,238,0.15);color:#22d3ee;border-radius:12px;font-size:0.8rem;font-weight:600;margin-bottom:12px;">${i.role}</div>`;
         if (i.description) body += `<p style="color:#94a3b8;margin-bottom:10px;">${formatText(i.description)}</p>`;
+        if (i.fullDesign) body += `<div style="margin:16px 0;padding:14px;background:rgba(34,211,238,0.06);border:1px solid rgba(34,211,238,0.15);border-radius:8px;text-align:center;"><div style="color:#22d3ee;font-weight:700;margin-bottom:10px;font-size:0.9rem;">🎨 Diseño Completo</div><img src="${i.fullDesign}" style="max-width:100%;max-height:400px;border-radius:8px;"></div>`;
         if (i.text) body += `<p style="color:#94a3b8;margin-bottom:10px;">${formatText(i.text)}</p>`;
         if (i.story) body += `<p style="color:#94a3b8;margin-bottom:10px;"><b style="color:#22d3ee">Historia:</b> ${formatText(i.story)}</p>`;
         if (type === 'personajes' && i.facts) {
@@ -311,7 +312,8 @@
                 <div class="form-group"><label>Descripción</label><textarea id="fDesc">${i.description||''}</textarea></div>
                 <div class="form-group"><label>Historia</label><textarea id="fStory">${i.story||''}</textarea></div>
                 <div class="form-group"><label>Datos Curiosos</label><textarea id="fFacts" style="min-height:100px" placeholder="Ej: Le tiene miedo a los gatos...">${i.facts||''}</textarea></div>
-                <div class="form-group"><label>Imagen</label><div class="image-upload" id="imgUp"><div class="placeholder">Subir imagen</div><input type="file" accept="image/*" id="fImg"></div></div>`,
+                <div class="form-group"><label>Imagen</label><div class="image-upload" id="imgUp"><div class="placeholder">Subir imagen</div><input type="file" accept="image/*" id="fImg"></div></div>
+                <div class="form-group"><label>Diseño Completo</label><div class="image-upload" id="fullDesignUp"><div class="placeholder">Subir imagen del diseño completo</div><input type="file" accept="image/*" id="fFullDesign"></div></div>`,
             comics: `
                 <div class="form-group"><label>Temporada</label><select id="fTemp"><option value="">Sin temporada</option>${DB.getContent('temporadas').map(t => `<option value="${t.id}" ${i.temporadaId===t.id?'selected':''}>${t.title}</option>`).join('')}</select></div>
                 <div class="form-group"><label>Título</label><input id="fTitle" value="${i.title||''}"></div>
@@ -349,12 +351,13 @@
         const num = document.getElementById('fNum'); if (num) d.chapterNumber = num.value;
         const date = document.getElementById('fDate'); if (date) d.date = date.value;
         if (tempData.image) d.image = tempData.image;
+        if (tempData.fullDesign) d.fullDesign = tempData.fullDesign;
         if (tempData.pages?.length) d.pages = tempData.pages;
         return d;
     }
 
     function setupUploads() {
-        tempData = { image: null, pages: [] };
+        tempData = { image: null, fullDesign: null, pages: [] };
         const imgUp = document.getElementById('imgUp');
         const fImg = document.getElementById('fImg');
         if (imgUp && fImg) {
@@ -366,6 +369,21 @@
                     imgUp.classList.add('has-image');
                     imgUp.innerHTML = `<img src="${ev.target.result}"><input type="file" accept="image/*" id="fImg">`;
                     document.getElementById('fImg').onchange = fImg.onchange;
+                };
+                r.readAsDataURL(e.target.files[0]);
+            };
+        }
+        const fdUp = document.getElementById('fullDesignUp');
+        const fFd = document.getElementById('fFullDesign');
+        if (fdUp && fFd) {
+            fdUp.onclick = () => fFd.click();
+            fFd.onchange = e => {
+                const r = new FileReader();
+                r.onload = ev => {
+                    tempData.fullDesign = ev.target.result;
+                    fdUp.classList.add('has-image');
+                    fdUp.innerHTML = `<img src="${ev.target.result}"><input type="file" accept="image/*" id="fFullDesign">`;
+                    document.getElementById('fFullDesign').onchange = fFd.onchange;
                 };
                 r.readAsDataURL(e.target.files[0]);
             };
@@ -471,6 +489,7 @@
             setTimeout(() => {
                 setupUploads();
                 if (i.image) setImagePreview(document.getElementById('imgUp'), i.image);
+                if (i.fullDesign) setImagePreview(document.getElementById('fullDesignUp'), i.fullDesign);
                 if (i.pages?.length) { tempData.pages = [...i.pages]; renderPages(); }
             }, 30);
         },
