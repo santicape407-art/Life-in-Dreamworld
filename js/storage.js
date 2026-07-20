@@ -16,7 +16,6 @@ const DB = (() => {
     function now() { return new Date().toISOString(); }
 
     const K = { CONTENT: 'lid_c', LOGS: 'lid_l', USERS_META: 'lid_um', SESSION: 'lid_s' };
-
     function ls(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } }
     function ss(k, v) { localStorage.setItem(k, JSON.stringify(v)); }
 
@@ -28,35 +27,40 @@ const DB = (() => {
     let usersMetaCache = ls(K.USERS_META) || [];
     let logsCache = ls(K.LOGS) || [];
 
-    // SIEMPRE guardar en localStorage primero, Firestore en background
-    function saveContentLocal() { ss(K.CONTENT, contentCache); }
-    function saveLogsLocal() { ss(K.LOGS, logsCache); }
-    function saveUsersMetaLocal() { ss(K.USERS_META, usersMetaCache); }
+    function saveLocal() {
+        ss(K.CONTENT, contentCache);
+        ss(K.USERS_META, usersMetaCache);
+        ss(K.LOGS, logsCache);
+    }
 
-    let syncPending = false;
+    // Cola de sincronización: siempre escribe todo el estado
+    let syncing = false;
+    let syncQueued = false;
     async function syncToFirestore() {
-        if (syncPending) return;
-        syncPending = true;
+        if (syncQueued) return;
+        syncQueued = true;
+        while (syncing) { await new Promise(r => setTimeout(r, 500)); syncQueued = false; }
+        syncing = true;
         try {
             await db.collection('site').doc('content').set(contentCache);
             await db.collection('site').doc('users_meta').set({ list: usersMetaCache });
             await db.collection('site').doc('logs').set({ list: logsCache.slice(0, 300) });
-            console.log('Synced to Firestore');
+            console.log('✓ Synced to Firestore');
         } catch(e) {
-            console.warn('Firestore sync failed, retrying in 3s:', e.message);
-            setTimeout(() => { syncPending = false; syncToFirestore(); }, 3000);
+            console.warn('✗ Firestore sync failed:', e.message);
+            // Reintentar en 2 segundos
+            setTimeout(() => { syncing = false; syncToFirestore(); }, 2000);
             return;
         }
-        syncPending = false;
+        syncing = false;
     }
 
     function addLog(user, action, detail) {
         logsCache.unshift({ id: uid(), user, action, detail, at: now() });
         if (logsCache.length > 300) logsCache.length = 300;
-        saveLogsLocal();
     }
 
-    // Init: cargar de Firestore y mezclar bidireccionalmente
+    // Init: cargar todo desde Firestore, mezclar con local, y subir
     const initPromise = (async () => {
         try {
             const [cSnap, uSnap, lSnap] = await Promise.all([
@@ -65,55 +69,45 @@ const DB = (() => {
                 db.collection('site').doc('logs').get()
             ]);
 
-            const cloudContent = cSnap.exists ? cSnap.data() : null;
-            const cloudUsers = uSnap.exists ? uSnap.data().list : null;
-            const cloudLogs = lSnap.exists ? lSnap.data().list : null;
+            const cloudC = cSnap.exists ? cSnap.data() : null;
+            const cloudU = uSnap.exists ? uSnap.data().list : null;
+            const cloudL = lSnap.exists ? lSnap.data().list : null;
 
-            if (cloudContent) {
-                // Mezclar bidireccionalmente
-                for (const type in contentCache) {
-                    const cloudItems = cloudContent[type] || [];
-                    const localItems = contentCache[type] || [];
-                    const allIds = new Map();
-                    localItems.forEach(i => allIds.set(i.id, i));
-                    cloudItems.forEach(i => { if (!allIds.has(i.id)) allIds.set(i.id, i); });
-                    contentCache[type] = [...allIds.values()];
-                }
-                // También agregar tipos que solo existen en cloud
-                for (const type in cloudContent) {
-                    if (!contentCache[type]) contentCache[type] = cloudContent[type] || [];
-                }
-                saveContentLocal();
+            // Mezclar contenido
+            if (cloudC) {
+                const merged = {};
+                const allTypes = new Set([...Object.keys(contentCache), ...Object.keys(cloudC)]);
+                allTypes.forEach(type => {
+                    const local = contentCache[type] || [];
+                    const cloud = cloudC[type] || [];
+                    const map = new Map();
+                    local.forEach(i => map.set(i.id, i));
+                    cloud.forEach(i => { if (!map.has(i.id)) map.set(i.id, i); });
+                    merged[type] = [...map.values()];
+                });
+                contentCache = merged;
             }
 
-            // SIEMPRE subir a Firestore lo que tengamos local
-            syncToFirestore();
-
-            if (cloudUsers) {
-                const allIds = new Map();
-                usersMetaCache.forEach(u => allIds.set(u.id, u));
-                cloudUsers.forEach(u => { if (!allIds.has(u.id)) allIds.set(u.id, u); });
-                usersMetaCache = [...allIds.values()];
-                saveUsersMetaLocal();
+            // Mezclar usuarios
+            if (cloudU) {
+                const map = new Map();
+                usersMetaCache.forEach(u => map.set(u.id, u));
+                cloudU.forEach(u => { if (!map.has(u.id)) map.set(u.id, u); });
+                usersMetaCache = [...map.values()];
             }
 
+            // Asegurar admin
             if (!usersMetaCache.find(u => u.email === 'santicape407@gmail.com')) {
                 usersMetaCache.push({
                     id: 'admin_main', email: 'santicape407@gmail.com',
                     name: 'Administrador', role: 'admin', active: true, at: now()
                 });
-                saveUsersMetaLocal();
             }
+
+            saveLocal();
             syncToFirestore();
         } catch(e) {
             console.warn('Firestore init error:', e);
-            if (!usersMetaCache.find(u => u.email === 'santicape407@gmail.com')) {
-                usersMetaCache.push({
-                    id: 'admin_main', email: 'santicape407@gmail.com',
-                    name: 'Administrador', role: 'admin', active: true, at: now()
-                });
-                saveUsersMetaLocal();
-            }
         }
     })();
 
@@ -122,12 +116,8 @@ const DB = (() => {
         try {
             await auth.signInWithEmailAndPassword(email, pass);
             const meta = usersMetaCache.find(u => u.email === email);
-            if (meta && !meta.active) {
-                await auth.signOut();
-                return { err: 'Cuenta desactivada' };
-            }
-            const role = meta?.role || 'editor';
-            ss(K.SESSION, { id: auth.currentUser.uid, email, name: meta?.name || '', role });
+            if (meta && !meta.active) { await auth.signOut(); return { err: 'Cuenta desactivada' }; }
+            ss(K.SESSION, { id: auth.currentUser.uid, email, name: meta?.name || '', role: meta?.role || 'editor' });
             return { ok: true };
         } catch(e) {
             const msgs = { 'auth/user-not-found': 'Correo no registrado', 'auth/wrong-password': 'Contraseña incorrecta', 'auth/invalid-credential': 'Credenciales incorrectas' };
@@ -135,14 +125,10 @@ const DB = (() => {
         }
     }
 
-    async function logout() {
-        try { await auth.signOut(); } catch {}
-        localStorage.removeItem(K.SESSION);
-    }
-
+    async function logout() { try { await auth.signOut(); } catch {} localStorage.removeItem(K.SESSION); }
     function getSession() { try { return JSON.parse(localStorage.getItem(K.SESSION)); } catch { return null; } }
 
-    // Users Meta
+    // Users
     function getUsers() { return usersMetaCache; }
     function getUser(id) { return usersMetaCache.find(u => u.id === id); }
 
@@ -150,8 +136,8 @@ const DB = (() => {
         if (usersMetaCache.find(u => u.email === d.email)) return { err: 'Correo ya registrado' };
         const u = { id: uid(), email: d.email, name: d.name||'', role: d.role||'editor', active: true, at: now() };
         usersMetaCache.push(u);
-        saveUsersMetaLocal();
         addLog('system', 'create_user', u.email);
+        saveLocal(); syncToFirestore();
         return { ok: true };
     }
 
@@ -159,16 +145,16 @@ const DB = (() => {
         const i = usersMetaCache.findIndex(u => u.id === id);
         if (i < 0) return { err: 'No encontrado' };
         Object.assign(usersMetaCache[i], d);
-        saveUsersMetaLocal();
         addLog('system', 'update_user', usersMetaCache[i].email);
+        saveLocal(); syncToFirestore();
         return { ok: true };
     }
 
     function deleteUser(id) {
         const u = usersMetaCache.find(x => x.id === id);
         usersMetaCache = usersMetaCache.filter(x => x.id !== id);
-        saveUsersMetaLocal();
         if (u) addLog('system', 'delete_user', u.email);
+        saveLocal(); syncToFirestore();
         return { ok: true };
     }
 
@@ -188,9 +174,8 @@ const DB = (() => {
         if (!contentCache[type]) contentCache[type] = [];
         const item = { id: uid(), ...d, by: user, at: now(), up: now() };
         contentCache[type].push(item);
-        saveContentLocal();
         addLog(user, 'create', `${type}: ${d.title||''}`);
-        syncToFirestore();
+        saveLocal(); syncToFirestore();
         return { ok: true, item };
     }
 
@@ -199,9 +184,8 @@ const DB = (() => {
         const i = list.findIndex(x => x.id === id);
         if (i < 0) return { err: 'No encontrado' };
         Object.assign(list[i], d, { up: now() });
-        saveContentLocal();
         addLog(user, 'update', `${type}: ${d.title||''}`);
-        syncToFirestore();
+        saveLocal(); syncToFirestore();
         return { ok: true };
     }
 
@@ -209,9 +193,8 @@ const DB = (() => {
         const list = contentCache[type] || [];
         const item = list.find(x => x.id === id);
         contentCache[type] = list.filter(x => x.id !== id);
-        saveContentLocal();
         addLog(user, 'delete', `${type}: ${item?.title||id}`);
-        syncToFirestore();
+        saveLocal(); syncToFirestore();
         return { ok: true };
     }
 
@@ -222,7 +205,6 @@ const DB = (() => {
     }
 
     function getLogs() { return logsCache; }
-
     function getEmails() { return []; }
     function addEmail() { return { ok: true }; }
     function removeEmail() { return { ok: true }; }
