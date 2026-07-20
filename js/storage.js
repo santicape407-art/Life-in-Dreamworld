@@ -11,6 +11,7 @@ const DB = (() => {
     firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
     const auth = firebase.auth();
+    const storage = firebase.storage();
 
     function uid() { return Date.now().toString(36) + Math.random().toString(36).substr(2, 6); }
     function now() { return new Date().toISOString(); }
@@ -43,19 +44,40 @@ const DB = (() => {
         if (logsCache.length > 200) logsCache.length = 200;
     }
 
-    // Strip imágenes (base64 pesa demasiado para Firestore, límite 1MB)
-    function stripImages(items) {
-        return items.map(item => {
+    // Subir imagen base64 a Firebase Storage, devolver URL pública
+    async function uploadImage(base64, itemId) {
+        if (!base64 || !base64.startsWith('data:image')) return base64;
+        try {
+            const ext = base64.split(';')[0].split('/')[1] || 'png';
+            const path = `images/${itemId}_${Date.now()}.${ext}`;
+            const ref = storage.ref(path);
+            await ref.putString(base64, 'data_url');
+            const url = await ref.getDownloadURL();
+            return url;
+        } catch(e) {
+            console.warn('Image upload failed:', e.message);
+            return base64;
+        }
+    }
+
+    // Preparar items para Firestore: subir imágenes y reemplazar base64 con URL
+    async function prepareForFirestore(items) {
+        const prepared = [];
+        for (const item of items) {
             const clean = { ...item };
-            if (clean.image && clean.image.length > 1000) delete clean.image;
-            return clean;
-        });
+            if (clean.image && clean.image.startsWith('data:image')) {
+                clean.image = await uploadImage(clean.image, item.id);
+            }
+            prepared.push(clean);
+        }
+        return prepared;
     }
 
     async function pushType(type) {
         try {
-            const items = stripImages(contentCache[type] || []);
-            await db.collection('content').doc(type).set({ items });
+            const items = contentCache[type] || [];
+            const prepared = await prepareForFirestore(items);
+            await db.collection('content').doc(type).set({ items: prepared });
         } catch(e) { console.warn('Push failed:', type, e.message); }
     }
 
@@ -85,7 +107,7 @@ const DB = (() => {
                     else {
                         const local = map.get(i.id);
                         if (i.up && local.up && i.up > local.up) {
-                            map.set(i.id, { ...i, image: local.image || i.image });
+                            map.set(i.id, { ...i, image: i.image || local.image });
                             changed = true;
                         }
                     }
@@ -102,7 +124,6 @@ const DB = (() => {
             }, e => console.warn('Listener error:', type, e.message));
         });
 
-        // Listener para usuarios
         db.collection('site').doc('users_meta').onSnapshot(snap => {
             if (!snap.exists) return;
             const cloudU = snap.data().list || [];
@@ -113,7 +134,6 @@ const DB = (() => {
             saveLocal();
         });
 
-        // Listener para logs
         db.collection('site').doc('logs').onSnapshot(snap => {
             if (!snap.exists) return;
             logsCache = snap.data().list || [];
@@ -121,17 +141,15 @@ const DB = (() => {
         });
     }
 
-    // Init: carga inicial + migración + listeners
+    // Init
     const initPromise = (async () => {
         try {
-            // Leer docs nuevos y viejo
             const typeSnaps = await Promise.all(
                 CONTENT_TYPES.map(t => db.collection('content').doc(t).get())
             );
             const oldSnap = await db.collection('site').doc('content').get();
             const uSnap = await db.collection('site').doc('users_meta').get();
 
-            // Merge docs nuevos
             typeSnaps.forEach((snap, i) => {
                 const type = CONTENT_TYPES[i];
                 const cloudItems = snap.exists ? (snap.data().items || []) : [];
@@ -143,13 +161,12 @@ const DB = (() => {
                         map.set(item.id, item);
                     } else {
                         const local = map.get(item.id);
-                        map.set(item.id, { ...item, ...local });
+                        map.set(item.id, { ...item, image: local.image || item.image });
                     }
                 });
                 contentCache[type] = [...map.values()];
             });
 
-            // Migrar doc viejo si tiene datos
             if (oldSnap.exists) {
                 const oldData = oldSnap.data();
                 let migrated = false;
@@ -163,17 +180,8 @@ const DB = (() => {
                         migrated = true;
                     }
                 });
-                if (migrated) {
-                    const batch = db.batch();
-                    CONTENT_TYPES.forEach(type => {
-                        batch.set(db.collection('content').doc(type), { items: stripImages(contentCache[type] || []) });
-                    });
-                    await batch.commit();
-                    console.log('✓ Migrated old data');
-                }
             }
 
-            // Merge usuarios
             if (uSnap.exists) {
                 const cloudU = uSnap.data().list || [];
                 const map = new Map();
@@ -182,7 +190,6 @@ const DB = (() => {
                 usersMetaCache = [...map.values()];
             }
 
-            // Asegurar admin
             if (!usersMetaCache.find(u => u.email === 'santicape407@gmail.com')) {
                 usersMetaCache.push({
                     id: 'admin_main', email: 'santicape407@gmail.com',
@@ -191,13 +198,8 @@ const DB = (() => {
             }
 
             saveLocal();
-
-            // Subir estado local completo a Firestore
-            await syncToFirestore();
-
-            // Activar listeners en tiempo real
+            syncToFirestore();
             startRealtimeListeners();
-
             console.log('✓ Init complete, realtime active');
         } catch(e) {
             console.warn('Init error:', e);
@@ -221,7 +223,6 @@ const DB = (() => {
     async function logout() { try { await auth.signOut(); } catch {} localStorage.removeItem(K.SESSION); }
     function getSession() { try { return JSON.parse(localStorage.getItem(K.SESSION)); } catch { return null; } }
 
-    // Users
     function getUsers() { return usersMetaCache; }
     function getUser(id) { return usersMetaCache.find(u => u.id === id); }
 
@@ -259,7 +260,6 @@ const DB = (() => {
         ];
     }
 
-    // Content
     function getContent(type) { return (contentCache || {})[type] || []; }
     function getItem(type, id) { return (contentCache[type] || []).find(x => x.id === id); }
 
@@ -270,7 +270,6 @@ const DB = (() => {
         addLog(user, 'create', `${type}: ${d.title||''}`);
         saveLocal();
         pushType(type);
-        syncToFirestore();
         return { ok: true, item };
     }
 
@@ -282,7 +281,6 @@ const DB = (() => {
         addLog(user, 'update', `${type}: ${d.title||''}`);
         saveLocal();
         pushType(type);
-        syncToFirestore();
         return { ok: true };
     }
 
@@ -293,7 +291,6 @@ const DB = (() => {
         addLog(user, 'delete', `${type}: ${item?.title||id}`);
         saveLocal();
         pushType(type);
-        syncToFirestore();
         return { ok: true };
     }
 
@@ -307,7 +304,6 @@ const DB = (() => {
     function getEmails() { return []; }
     function addEmail() { return { ok: true }; }
     function removeEmail() { return { ok: true }; }
-
     function onUpdate(cb) { onUpdateCallback = cb; }
 
     return {
