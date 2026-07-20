@@ -253,6 +253,14 @@
         if (i.description) body += `<p style="color:#94a3b8;margin-bottom:10px;">${formatText(i.description)}</p>`;
         if (i.text) body += `<p style="color:#94a3b8;margin-bottom:10px;">${formatText(i.text)}</p>`;
         if (i.story) body += `<p style="color:#94a3b8;margin-bottom:10px;"><b style="color:#22d3ee">Historia:</b> ${formatText(i.story)}</p>`;
+        if (type === 'personajes' && i.facts) {
+            body += `<div style="margin-top:14px;padding:14px;background:rgba(34,211,238,0.06);border:1px solid rgba(34,211,238,0.15);border-radius:8px;">`;
+            body += `<div style="color:#22d3ee;font-weight:700;margin-bottom:8px;font-size:0.9rem;">🔍 Datos Curiosos</div>`;
+            i.facts.split('\n').forEach(f => {
+                if (f.trim()) body += `<div style="color:#94a3b8;font-size:0.85rem;margin-bottom:4px;">• ${formatText(f)}</div>`;
+            });
+            body += '</div>';
+        }
         if (i.chapterNumber) body += `<p style="color:#94a3b8;">Capítulo Nº: ${i.chapterNumber}</p>`;
         if (i.date) body += `<p style="color:#94a3b8;">Fecha: ${i.date}</p>`;
         if (i.pages?.length) {
@@ -302,6 +310,7 @@
                 </select></div>
                 <div class="form-group"><label>Descripción</label><textarea id="fDesc">${i.description||''}</textarea></div>
                 <div class="form-group"><label>Historia</label><textarea id="fStory">${i.story||''}</textarea></div>
+                <div class="form-group"><label>Datos Curiosos</label><textarea id="fFacts" style="min-height:100px" placeholder="Ej: Le tiene miedo a los gatos...">${i.facts||''}</textarea></div>
                 <div class="form-group"><label>Imagen</label><div class="image-upload" id="imgUp"><div class="placeholder">Subir imagen</div><input type="file" accept="image/*" id="fImg"></div></div>`,
             comics: `
                 <div class="form-group"><label>Temporada</label><select id="fTemp"><option value="">Sin temporada</option>${DB.getContent('temporadas').map(t => `<option value="${t.id}" ${i.temporadaId===t.id?'selected':''}>${t.title}</option>`).join('')}</select></div>
@@ -335,6 +344,7 @@
         const desc = document.getElementById('fDesc'); if (desc) d.description = desc.value.trim();
         const txt = document.getElementById('fText'); if (txt) d.text = txt.value.trim();
         const story = document.getElementById('fStory'); if (story) d.story = story.value.trim();
+        const facts = document.getElementById('fFacts'); if (facts) d.facts = facts.value.trim();
         const temp = document.getElementById('fTemp'); if (temp) d.temporadaId = temp.value || null;
         const num = document.getElementById('fNum'); if (num) d.chapterNumber = num.value;
         const date = document.getElementById('fDate'); if (date) d.date = date.value;
