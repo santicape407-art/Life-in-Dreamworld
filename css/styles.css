@@ -529,3 +529,7 @@ body {
     .tbl th, .tbl td { padding: 8px 10px; }
     .inicio-layout { grid-template-columns: 1fr; }
 }
+
+.crop-handle { z-index: 10; }
+.crop-handle[data-pos="nw"], .crop-handle[data-pos="ne"],
+.crop-handle[data-pos="sw"], .crop-handle[data-pos="se"] { z-index: 11; }

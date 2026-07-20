@@ -344,10 +344,12 @@
             fImg.onchange = e => {
                 const r = new FileReader();
                 r.onload = ev => {
-                    tempData.image = ev.target.result;
-                    imgUp.classList.add('has-image');
-                    imgUp.innerHTML = `<img src="${ev.target.result}"><input type="file" accept="image/*" id="fImg">`;
-                    document.getElementById('fImg').onchange = fImg.onchange;
+                    openCropModal(ev.target.result, cropped => {
+                        tempData.image = cropped;
+                        imgUp.classList.add('has-image');
+                        imgUp.innerHTML = `<img src="${cropped}"><input type="file" accept="image/*" id="fImg">`;
+                        document.getElementById('fImg').onchange = fImg.onchange;
+                    });
                 };
                 r.readAsDataURL(e.target.files[0]);
             };
@@ -519,6 +521,159 @@
         viewTemporada(id) { showTemporada(id); },
         addCapitulo(tempId) { this.add('capitulos', tempId); }
     };
+
+    // ========= CROP TOOL =========
+    let cropState = { img: null, callback: null, box: { x: 0, y: 0, w: 0, h: 0 }, dragging: null, start: {} };
+
+    window.openCropModal = function(src, callback) {
+        const overlay = document.getElementById('cropOverlay');
+        const img = document.getElementById('cropImg');
+        const box = document.getElementById('cropBox');
+        const container = document.getElementById('cropContainer');
+
+        img.onload = () => {
+            const ratio = img.naturalWidth / img.naturalWidth;
+            const displayW = img.clientWidth;
+            const displayH = img.clientHeight;
+
+            const cw = Math.round(displayW * 0.6);
+            const ch = Math.round(displayH * 0.6);
+            const cx = Math.round((displayW - cw) / 2);
+            const cy = Math.round((displayH - ch) / 2);
+
+            box.style.left = cx + 'px';
+            box.style.top = cy + 'px';
+            box.style.width = cw + 'px';
+            box.style.height = ch + 'px';
+            box.style.display = 'block';
+
+            cropState = {
+                img, callback, container,
+                natW: img.naturalWidth, natH: img.naturalHeight,
+                dispW: displayW, dispH: displayH,
+                box: { x: cx, y: cy, w: cw, h: ch },
+                dragging: null, start: {}
+            };
+        };
+        img.src = src;
+        overlay.classList.add('active');
+    };
+
+    window.closeCropModal = function() {
+        document.getElementById('cropOverlay').classList.remove('active');
+    };
+
+    window.applyCrop = function() {
+        const s = cropState;
+        if (!s.img) { closeCropModal(); return; }
+
+        const scaleX = s.natW / s.dispW;
+        const scaleY = s.natH / s.dispH;
+
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(s.box.w * scaleX);
+        canvas.height = Math.round(s.box.h * scaleY);
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(s.img,
+            Math.round(s.box.x * scaleX), Math.round(s.box.y * scaleY),
+            canvas.width, canvas.height,
+            0, 0, canvas.width, canvas.height
+        );
+
+        const result = canvas.toDataURL('image/png');
+        if (s.callback) s.callback(result);
+        closeCropModal();
+    };
+
+    // Drag & resize handlers
+    document.addEventListener('DOMContentLoaded', () => {
+        const box = document.getElementById('cropBox');
+        const container = document.getElementById('cropContainer');
+
+        box.addEventListener('mousedown', e => {
+            const handle = e.target.closest('.crop-handle');
+            if (handle) {
+                cropState.dragging = handle.dataset.pos;
+            } else {
+                cropState.dragging = 'move';
+            }
+            cropState.start = { mx: e.clientX, my: e.clientY, ...cropState.box };
+            e.preventDefault();
+        });
+
+        document.addEventListener('mousemove', e => {
+            if (!cropState.dragging) return;
+            const s = cropState;
+            const dx = e.clientX - s.start.mx;
+            const dy = e.clientY - s.start.my;
+            const pos = s.dragging;
+            let { x, y, w, h } = s.start;
+
+            if (pos === 'move') {
+                x = Math.max(0, Math.min(s.dispW - w, x + dx));
+                y = Math.max(0, Math.min(s.dispH - h, y + dy));
+            } else if (pos === 'se') {
+                w = Math.max(30, Math.min(s.dispW - x, w + dx));
+                h = Math.max(30, Math.min(s.dispH - y, h + dy));
+            } else if (pos === 'sw') {
+                const nw = Math.max(30, w - dx);
+                x = x + (w - nw);
+                w = nw;
+                h = Math.max(30, Math.min(s.dispH - y, h + dy));
+            } else if (pos === 'ne') {
+                w = Math.max(30, Math.min(s.dispW - x, w + dx));
+                const nh = Math.max(30, h - dy);
+                y = y + (h - nh);
+                h = nh;
+            } else if (pos === 'nw') {
+                const nw = Math.max(30, w - dx);
+                const nh = Math.max(30, h - dy);
+                x = x + (w - nw);
+                y = y + (h - nh);
+                w = nw;
+                h = nh;
+            } else if (pos === 'n') {
+                const nh = Math.max(30, h - dy);
+                y = y + (h - nh);
+                h = nh;
+            } else if (pos === 's') {
+                h = Math.max(30, Math.min(s.dispH - y, h + dy));
+            } else if (pos === 'w') {
+                const nw = Math.max(30, w - dx);
+                x = x + (w - nw);
+                w = nw;
+            } else if (pos === 'e') {
+                w = Math.max(30, Math.min(s.dispW - x, w + dx));
+            }
+
+            s.box = { x, y, w, h };
+            box.style.left = x + 'px';
+            box.style.top = y + 'px';
+            box.style.width = w + 'px';
+            box.style.height = h + 'px';
+        });
+
+        document.addEventListener('mouseup', () => { cropState.dragging = null; });
+
+        // Touch support
+        box.addEventListener('touchstart', e => {
+            const t = e.touches[0];
+            const handle = e.target.closest('.crop-handle');
+            cropState.dragging = handle ? handle.dataset.pos : 'move';
+            cropState.start = { mx: t.clientX, my: t.clientY, ...cropState.box };
+            e.preventDefault();
+        }, { passive: false });
+
+        document.addEventListener('touchmove', e => {
+            if (!cropState.dragging) return;
+            const t = e.touches[0];
+            const fakeE = { clientX: t.clientX, clientY: t.clientY };
+            document.dispatchEvent(new MouseEvent('mousemove', fakeE));
+            e.preventDefault();
+        }, { passive: false });
+
+        document.addEventListener('touchend', () => { cropState.dragging = null; });
+    });
 
     document.addEventListener('DOMContentLoaded', () => App.init());
     window.closeModal = closeModal;
