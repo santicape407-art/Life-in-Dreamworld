@@ -24,99 +24,76 @@ const DB = (() => {
         return { temporadas: [], personajes: [], comics: [], lore: [], lugares: [], anuncios: [], capitulos: [] };
     }
 
-    // Cache
-    let contentCache = null;
-    let usersMetaCache = [];
-    let logsCache = [];
+    let contentCache = ls(K.CONTENT) || defaultContent();
+    let usersMetaCache = ls(K.USERS_META) || [];
+    let logsCache = ls(K.LOGS) || [];
 
-    // Cargar contenido desde Firestore
-    async function loadContent() {
-        try {
-            const snap = await db.collection('site').doc('content').get();
-            contentCache = snap.exists ? snap.data() : defaultContent();
-            ss(K.CONTENT, contentCache);
-        } catch(e) {
-            console.warn('Firestore read error:', e);
-            contentCache = ls(K.CONTENT) || defaultContent();
-        }
-    }
+    // SIEMPRE guardar en localStorage primero, Firestore en background
+    function saveContentLocal() { ss(K.CONTENT, contentCache); }
+    function saveLogsLocal() { ss(K.LOGS, logsCache); }
+    function saveUsersMetaLocal() { ss(K.USERS_META, usersMetaCache); }
 
-    async function saveContent() {
+    async function syncToFirestore() {
         try {
             await db.collection('site').doc('content').set(contentCache);
-            ss(K.CONTENT, contentCache);
-        } catch(e) { console.warn('Firestore write error:', e); }
-    }
-
-    async function loadUsersMeta() {
-        try {
-            const snap = await db.collection('site').doc('users_meta').get();
-            usersMetaCache = snap.exists ? snap.data().list : [];
-            ss(K.USERS_META, usersMetaCache);
-        } catch(e) {
-            usersMetaCache = ls(K.USERS_META) || [];
-        }
-    }
-
-    async function saveUsersMeta() {
-        try {
-            await db.collection('site').doc('users_meta').set({ list: usersMetaCache });
-            ss(K.USERS_META, usersMetaCache);
-        } catch(e) { console.warn('Firestore write error:', e); }
-    }
-
-    async function loadLogs() {
-        try {
-            const snap = await db.collection('site').doc('logs').get();
-            logsCache = snap.exists ? snap.data().list : [];
-        } catch(e) {
-            logsCache = ls(K.LOGS) || [];
-        }
-    }
-
-    async function saveLogs() {
-        try {
             await db.collection('site').doc('logs').set({ list: logsCache.slice(0, 300) });
-        } catch(e) { console.warn('Firestore write error:', e); }
+            await db.collection('site').doc('users_meta').set({ list: usersMetaCache });
+        } catch(e) { console.warn('Firestore sync error:', e); }
     }
 
     function addLog(user, action, detail) {
         logsCache.unshift({ id: uid(), user, action, detail, at: now() });
         if (logsCache.length > 300) logsCache.length = 300;
-        saveLogs();
+        saveLogsLocal();
     }
 
-    // Init
+    // Init: cargar de Firestore y mezclar con localStorage
     const initPromise = (async () => {
-        contentCache = ls(K.CONTENT) || defaultContent();
-        usersMetaCache = ls(K.USERS_META) || [];
-        await Promise.all([loadContent(), loadUsersMeta(), loadLogs()]);
-        // Asegurar admin en users_meta
+        try {
+            const [cSnap, uSnap, lSnap] = await Promise.all([
+                db.collection('site').doc('content').get(),
+                db.collection('site').doc('users_meta').get(),
+                db.collection('site').doc('logs').get()
+            ]);
+
+            const cloudContent = cSnap.exists ? cSnap.data() : null;
+            const cloudUsers = uSnap.exists ? uSnap.data().list : null;
+            const cloudLogs = lSnap.exists ? lSnap.data().list : null;
+
+            // Mezclar contenido: unir ambos, sin duplicar por id
+            if (cloudContent) {
+                for (const type in cloudContent) {
+                    const cloudItems = cloudContent[type] || [];
+                    const localItems = contentCache[type] || [];
+                    const ids = new Set(localItems.map(i => i.id));
+                    cloudItems.forEach(i => { if (!ids.has(i.id)) localItems.push(i); });
+                    contentCache[type] = localItems;
+                }
+                saveContentLocal();
+            }
+
+            if (cloudUsers && cloudUsers.length > usersMetaCache.length) {
+                usersMetaCache = cloudUsers;
+                saveUsersMetaLocal();
+            }
+
+            if (cloudLogs && cloudLogs.length > logsCache.length) {
+                logsCache = cloudLogs;
+                saveLogsLocal();
+            }
+        } catch(e) { console.warn('Firestore init error:', e); }
+
+        // Asegurar admin
         if (!usersMetaCache.find(u => u.email === 'santicape407@gmail.com')) {
             usersMetaCache.push({
                 id: 'admin_main', email: 'santicape407@gmail.com',
                 name: 'Administrador', role: 'admin', active: true, at: now()
             });
-            await saveUsersMeta();
+            saveUsersMetaLocal();
         }
     })();
 
-    // Auth - usa Firebase Authentication
-    async function register(email, pass, name) {
-        try {
-            const cred = await auth.createUserWithEmailAndPassword(email, pass);
-            const meta = { id: cred.user.uid, email, name: name || '', role: 'editor', active: true, at: now() };
-            usersMetaCache.push(meta);
-            await saveUsersMeta();
-            addLog('system', 'create_user', email);
-            ss(K.SESSION, { id: cred.user.uid, email, name: name || '', role: 'editor' });
-            return { ok: true };
-        } catch(e) {
-            const msgs = { 'auth/email-already-in-use': 'Correo ya registrado', 'auth/weak-password': 'Contraseña muy débil', 'auth/invalid-email': 'Correo inválido' };
-            return { err: msgs[e.code] || e.message };
-        }
-    }
-
+    // Auth
     async function login(email, pass) {
         try {
             await auth.signInWithEmailAndPassword(email, pass);
@@ -129,55 +106,48 @@ const DB = (() => {
             ss(K.SESSION, { id: auth.currentUser.uid, email, name: meta?.name || '', role });
             return { ok: true };
         } catch(e) {
-            const msgs = { 'auth/user-not-found': 'Correo no registrado', 'auth/wrong-password': 'Contraseña incorrecta', 'auth/invalid-email': 'Correo inválido', 'auth/invalid-credential': 'Credenciales incorrectas' };
+            const msgs = { 'auth/user-not-found': 'Correo no registrado', 'auth/wrong-password': 'Contraseña incorrecta', 'auth/invalid-credential': 'Credenciales incorrectas' };
             return { err: msgs[e.code] || e.message };
         }
     }
 
     async function logout() {
-        await auth.signOut();
+        try { await auth.signOut(); } catch {}
         localStorage.removeItem(K.SESSION);
     }
 
-    function getSession() {
-        try { return JSON.parse(localStorage.getItem(K.SESSION)); } catch { return null; }
-    }
+    function getSession() { try { return JSON.parse(localStorage.getItem(K.SESSION)); } catch { return null; } }
 
-    function canWrite() {
-        return auth.currentUser !== null;
-    }
-
-    // Users Meta (para admin)
+    // Users Meta
     function getUsers() { return usersMetaCache; }
     function getUser(id) { return usersMetaCache.find(u => u.id === id); }
 
-    async function addUser(d) {
+    function addUser(d) {
         if (usersMetaCache.find(u => u.email === d.email)) return { err: 'Correo ya registrado' };
         const u = { id: uid(), email: d.email, name: d.name||'', role: d.role||'editor', active: true, at: now() };
         usersMetaCache.push(u);
-        await saveUsersMeta();
+        saveUsersMetaLocal();
         addLog('system', 'create_user', u.email);
-        return { ok: true, tempPass: d.pass, tempEmail: d.email };
+        return { ok: true };
     }
 
-    async function updateUser(id, d) {
+    function updateUser(id, d) {
         const i = usersMetaCache.findIndex(u => u.id === id);
         if (i < 0) return { err: 'No encontrado' };
         Object.assign(usersMetaCache[i], d);
-        await saveUsersMeta();
+        saveUsersMetaLocal();
         addLog('system', 'update_user', usersMetaCache[i].email);
         return { ok: true };
     }
 
-    async function deleteUser(id) {
+    function deleteUser(id) {
         const u = usersMetaCache.find(x => x.id === id);
         usersMetaCache = usersMetaCache.filter(x => x.id !== id);
-        await saveUsersMeta();
+        saveUsersMetaLocal();
         if (u) addLog('system', 'delete_user', u.email);
         return { ok: true };
     }
 
-    // Roles (hardcoded, se pueden cambiar)
     function getRoles() {
         return [
             { id: 'admin', name: 'Administrador', perms: ['create','read','update','delete','manage'] },
@@ -190,31 +160,34 @@ const DB = (() => {
     function getContent(type) { return (contentCache || {})[type] || []; }
     function getItem(type, id) { return (contentCache[type] || []).find(x => x.id === id); }
 
-    async function addItem(type, d, user) {
+    function addItem(type, d, user) {
         if (!contentCache[type]) contentCache[type] = [];
         const item = { id: uid(), ...d, by: user, at: now(), up: now() };
         contentCache[type].push(item);
-        await saveContent();
+        saveContentLocal();
         addLog(user, 'create', `${type}: ${d.title||''}`);
+        syncToFirestore();
         return { ok: true, item };
     }
 
-    async function updateItem(type, id, d, user) {
+    function updateItem(type, id, d, user) {
         const list = contentCache[type] || [];
         const i = list.findIndex(x => x.id === id);
         if (i < 0) return { err: 'No encontrado' };
         Object.assign(list[i], d, { up: now() });
-        await saveContent();
+        saveContentLocal();
         addLog(user, 'update', `${type}: ${d.title||''}`);
+        syncToFirestore();
         return { ok: true };
     }
 
-    async function deleteItem(type, id, user) {
+    function deleteItem(type, id, user) {
         const list = contentCache[type] || [];
         const item = list.find(x => x.id === id);
         contentCache[type] = list.filter(x => x.id !== id);
-        await saveContent();
+        saveContentLocal();
         addLog(user, 'delete', `${type}: ${item?.title||id}`);
+        syncToFirestore();
         return { ok: true };
     }
 
@@ -224,16 +197,14 @@ const DB = (() => {
         return r.sort((a, b) => new Date(b.at) - new Date(a.at));
     }
 
-    // Logs
     function getLogs() { return logsCache; }
 
-    // Emails (ya no se necesita, Firebase Auth maneja esto)
     function getEmails() { return []; }
     function addEmail() { return { ok: true }; }
     function removeEmail() { return { ok: true }; }
 
     return {
-        initPromise, login, register, logout, getSession, canWrite,
+        initPromise, login, logout, getSession,
         getUsers, getUser, addUser, updateUser, deleteUser,
         getRoles,
         getContent, getItem, addItem, updateItem, deleteItem, allContent,
