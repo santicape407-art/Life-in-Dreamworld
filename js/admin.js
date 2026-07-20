@@ -167,6 +167,11 @@
 
             document.querySelectorAll('.sidebar-btn').forEach(b => b.addEventListener('click', () => switchPanel(b.dataset.panel)));
 
+            // Tiempo real: cuando Firestore actualiza, re-renderizar
+            DB.onUpdate(() => {
+                if (user) renderContent();
+            });
+
             document.getElementById('contentFilters')?.addEventListener('click', e => {
                 if (!e.target.classList.contains('filter-btn')) return;
                 curFilter = e.target.dataset.f;

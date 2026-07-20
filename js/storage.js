@@ -22,12 +22,15 @@ const DB = (() => {
     const CONTENT_TYPES = ['temporadas','personajes','comics','lore','lugares','anuncios','capitulos'];
 
     function defaultContent() {
-        return { temporadas: [], personajes: [], comics: [], lore: [], lugares: [], anuncios: [], capitulos: [] };
+        const c = {};
+        CONTENT_TYPES.forEach(t => c[t] = []);
+        return c;
     }
 
     let contentCache = ls(K.CONTENT) || defaultContent();
     let usersMetaCache = ls(K.USERS_META) || [];
     let logsCache = ls(K.LOGS) || [];
+    let onUpdateCallback = null;
 
     function saveLocal() {
         ss(K.CONTENT, contentCache);
@@ -35,91 +38,128 @@ const DB = (() => {
         ss(K.LOGS, logsCache);
     }
 
-    // Sync: cada tipo de contenido en su propio documento para no exceder 1MB
-    let syncing = false;
-    let syncQueued = false;
-
-    async function syncToFirestore() {
-        if (syncQueued) return;
-        syncQueued = true;
-        while (syncing) { await new Promise(r => setTimeout(r, 500)); syncQueued = false; }
-        syncing = true;
-        try {
-            const batch = db.batch();
-            CONTENT_TYPES.forEach(type => {
-                const ref = db.collection('content').doc(type);
-                batch.set(ref, { items: contentCache[type] || [] });
-            });
-            batch.set(db.collection('site').doc('users_meta'), { list: usersMetaCache });
-            batch.set(db.collection('site').doc('logs'), { list: logsCache.slice(0, 200) });
-            await batch.commit();
-            console.log('✓ Synced to Firestore');
-        } catch(e) {
-            console.warn('✗ Firestore sync failed:', e.message);
-            setTimeout(() => { syncing = false; syncToFirestore(); }, 2000);
-            return;
-        }
-        syncing = false;
-    }
-
     function addLog(user, action, detail) {
         logsCache.unshift({ id: uid(), user, action, detail, at: now() });
         if (logsCache.length > 200) logsCache.length = 200;
     }
 
-    // Init: cargar desde Firestore, mezclar con local
+    // Push local → Firestore (sin usar batch grande, uno por tipo)
+    async function pushType(type) {
+        try {
+            await db.collection('content').doc(type).set({ items: contentCache[type] || [] });
+        } catch(e) { console.warn('Push failed:', type, e.message); }
+    }
+
+    async function syncToFirestore() {
+        try {
+            await Promise.all(CONTENT_TYPES.map(t => pushType(t)));
+            await db.collection('site').doc('users_meta').set({ list: usersMetaCache });
+            await db.collection('site').doc('logs').set({ list: logsCache.slice(0, 200) });
+            console.log('✓ Pushed to Firestore');
+        } catch(e) {
+            console.warn('✗ Push failed:', e.message);
+        }
+    }
+
+    // Listeners en tiempo real: Firestore → local cache
+    function startRealtimeListeners() {
+        CONTENT_TYPES.forEach(type => {
+            db.collection('content').doc(type).onSnapshot(snap => {
+                if (!snap.exists) return;
+                const cloudItems = snap.data().items || [];
+                const localItems = contentCache[type] || [];
+                const map = new Map();
+                localItems.forEach(i => map.set(i.id, i));
+                let changed = false;
+                cloudItems.forEach(i => {
+                    if (!map.has(i.id)) { map.set(i.id, i); changed = true; }
+                    else {
+                        const local = map.get(i.id);
+                        if (i.up && local.up && i.up > local.up) { map.set(i.id, i); changed = true; }
+                    }
+                });
+                localItems.forEach(i => {
+                    if (!cloudItems.find(c => c.id === i.id)) { map.delete(i.id); changed = true; }
+                });
+                if (changed) {
+                    contentCache[type] = [...map.values()];
+                    saveLocal();
+                    console.log(`↻ Realtime update: ${type}`);
+                    if (onUpdateCallback) onUpdateCallback(type);
+                }
+            }, e => console.warn('Listener error:', type, e.message));
+        });
+
+        // Listener para usuarios
+        db.collection('site').doc('users_meta').onSnapshot(snap => {
+            if (!snap.exists) return;
+            const cloudU = snap.data().list || [];
+            const map = new Map();
+            usersMetaCache.forEach(u => map.set(u.id, u));
+            cloudU.forEach(u => map.set(u.id, u));
+            usersMetaCache = [...map.values()];
+            saveLocal();
+        });
+
+        // Listener para logs
+        db.collection('site').doc('logs').onSnapshot(snap => {
+            if (!snap.exists) return;
+            logsCache = snap.data().list || [];
+            saveLocal();
+        });
+    }
+
+    // Init: carga inicial + migración + listeners
     const initPromise = (async () => {
         try {
-            // 1) Leer documentos nuevos por tipo
+            // Leer docs nuevos y viejo
             const typeSnaps = await Promise.all(
                 CONTENT_TYPES.map(t => db.collection('content').doc(t).get())
             );
-            // 2) Leer documento viejo (todo junto en site/content)
             const oldSnap = await db.collection('site').doc('content').get();
             const uSnap = await db.collection('site').doc('users_meta').get();
 
-            // Merge de cada tipo
+            // Merge docs nuevos
             typeSnaps.forEach((snap, i) => {
                 const type = CONTENT_TYPES[i];
                 const cloudItems = snap.exists ? (snap.data().items || []) : [];
                 const localItems = contentCache[type] || [];
                 const map = new Map();
                 localItems.forEach(item => map.set(item.id, item));
-                cloudItems.forEach(item => { if (!map.has(item.id)) map.set(item.id, item); });
+                cloudItems.forEach(item => map.set(item.id, item));
                 contentCache[type] = [...map.values()];
             });
 
-            // Si el doc viejo tiene datos, migrar cada tipo al doc nuevo
+            // Migrar doc viejo si tiene datos
             if (oldSnap.exists) {
                 const oldData = oldSnap.data();
-                let needsMigration = false;
+                let migrated = false;
                 CONTENT_TYPES.forEach(type => {
                     const oldItems = oldData[type] || [];
                     if (oldItems.length > 0) {
                         const map = new Map();
-                        (contentCache[type] || []).forEach(item => map.set(item.id, item));
-                        oldItems.forEach(item => { if (!map.has(item.id)) map.set(item.id, item); });
+                        (contentCache[type] || []).forEach(i => map.set(i.id, i));
+                        oldItems.forEach(i => map.set(i.id, i));
                         contentCache[type] = [...map.values()];
-                        needsMigration = true;
+                        migrated = true;
                     }
                 });
-                // Migrar: escribir cada tipo en su doc nuevo
-                if (needsMigration) {
+                if (migrated) {
                     const batch = db.batch();
                     CONTENT_TYPES.forEach(type => {
                         batch.set(db.collection('content').doc(type), { items: contentCache[type] || [] });
                     });
                     await batch.commit();
-                    console.log('✓ Migrated old site/content to per-type docs');
+                    console.log('✓ Migrated old data');
                 }
             }
 
-            // Mezclar usuarios
+            // Merge usuarios
             if (uSnap.exists) {
                 const cloudU = uSnap.data().list || [];
                 const map = new Map();
                 usersMetaCache.forEach(u => map.set(u.id, u));
-                cloudU.forEach(u => { if (!map.has(u.id)) map.set(u.id, u); });
+                cloudU.forEach(u => map.set(u.id, u));
                 usersMetaCache = [...map.values()];
             }
 
@@ -132,9 +172,16 @@ const DB = (() => {
             }
 
             saveLocal();
-            syncToFirestore();
+
+            // Subir estado local completo a Firestore
+            await syncToFirestore();
+
+            // Activar listeners en tiempo real
+            startRealtimeListeners();
+
+            console.log('✓ Init complete, realtime active');
         } catch(e) {
-            console.warn('Firestore init error:', e);
+            console.warn('Init error:', e);
         }
     })();
 
@@ -202,7 +249,9 @@ const DB = (() => {
         const item = { id: uid(), ...d, by: user, at: now(), up: now() };
         contentCache[type].push(item);
         addLog(user, 'create', `${type}: ${d.title||''}`);
-        saveLocal(); syncToFirestore();
+        saveLocal();
+        pushType(type);
+        syncToFirestore();
         return { ok: true, item };
     }
 
@@ -212,7 +261,9 @@ const DB = (() => {
         if (i < 0) return { err: 'No encontrado' };
         Object.assign(list[i], d, { up: now() });
         addLog(user, 'update', `${type}: ${d.title||''}`);
-        saveLocal(); syncToFirestore();
+        saveLocal();
+        pushType(type);
+        syncToFirestore();
         return { ok: true };
     }
 
@@ -221,7 +272,9 @@ const DB = (() => {
         const item = list.find(x => x.id === id);
         contentCache[type] = list.filter(x => x.id !== id);
         addLog(user, 'delete', `${type}: ${item?.title||id}`);
-        saveLocal(); syncToFirestore();
+        saveLocal();
+        pushType(type);
+        syncToFirestore();
         return { ok: true };
     }
 
@@ -236,11 +289,13 @@ const DB = (() => {
     function addEmail() { return { ok: true }; }
     function removeEmail() { return { ok: true }; }
 
+    function onUpdate(cb) { onUpdateCallback = cb; }
+
     return {
         initPromise, login, logout, getSession,
         getUsers, getUser, addUser, updateUser, deleteUser,
         getRoles,
         getContent, getItem, addItem, updateItem, deleteItem, allContent,
-        getEmails, addEmail, removeEmail, getLogs, uid
+        getEmails, addEmail, removeEmail, getLogs, uid, onUpdate
     };
 })();

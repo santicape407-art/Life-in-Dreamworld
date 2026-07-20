@@ -382,6 +382,11 @@
             document.getElementById('modalOverlay').onclick = e => { if (e.target === e.currentTarget) closeModal(); };
             document.getElementById('confirmCancel').onclick = () => document.getElementById('confirmOverlay').classList.remove('active');
             nav('inicio');
+
+            // Tiempo real: cuando Firestore actualiza, re-renderizar la sección actual
+            DB.onUpdate((type) => {
+                nav(type);
+            });
         },
 
         _refresh(type, extra) {
