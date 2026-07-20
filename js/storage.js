@@ -70,12 +70,15 @@ const DB = (() => {
     // Init: cargar desde Firestore, mezclar con local
     const initPromise = (async () => {
         try {
-            // Cargar cada tipo por separado
+            // 1) Leer documentos nuevos por tipo
             const typeSnaps = await Promise.all(
                 CONTENT_TYPES.map(t => db.collection('content').doc(t).get())
             );
+            // 2) Leer documento viejo (todo junto en site/content)
+            const oldSnap = await db.collection('site').doc('content').get();
             const uSnap = await db.collection('site').doc('users_meta').get();
 
+            // Merge de cada tipo
             typeSnaps.forEach((snap, i) => {
                 const type = CONTENT_TYPES[i];
                 const cloudItems = snap.exists ? (snap.data().items || []) : [];
@@ -85,6 +88,31 @@ const DB = (() => {
                 cloudItems.forEach(item => { if (!map.has(item.id)) map.set(item.id, item); });
                 contentCache[type] = [...map.values()];
             });
+
+            // Si el doc viejo tiene datos, migrar cada tipo al doc nuevo
+            if (oldSnap.exists) {
+                const oldData = oldSnap.data();
+                let needsMigration = false;
+                CONTENT_TYPES.forEach(type => {
+                    const oldItems = oldData[type] || [];
+                    if (oldItems.length > 0) {
+                        const map = new Map();
+                        (contentCache[type] || []).forEach(item => map.set(item.id, item));
+                        oldItems.forEach(item => { if (!map.has(item.id)) map.set(item.id, item); });
+                        contentCache[type] = [...map.values()];
+                        needsMigration = true;
+                    }
+                });
+                // Migrar: escribir cada tipo en su doc nuevo
+                if (needsMigration) {
+                    const batch = db.batch();
+                    CONTENT_TYPES.forEach(type => {
+                        batch.set(db.collection('content').doc(type), { items: contentCache[type] || [] });
+                    });
+                    await batch.commit();
+                    console.log('✓ Migrated old site/content to per-type docs');
+                }
+            }
 
             // Mezclar usuarios
             if (uSnap.exists) {
